@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AASHA Villa Management Platform
 
-## Getting Started
+Villa commercial, revenue reconciliation, operational expense, finance, and owner
+reporting platform for Aasha Management. See `CLAUDE.md` and `docs/` for the
+authoritative product spec, data model, financial logic, and implementation plan.
 
-First, run the development server:
+## Stack
+
+Next.js (App Router) + TypeScript + Tailwind CSS + shadcn/ui, Supabase (Postgres,
+Auth), deployed on Vercel.
+
+## Local development
 
 ```bash
+npm install
+cp .env.example .env.local   # fill in NEXT_PUBLIC_SUPABASE_ANON_KEY
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Running against a local Supabase stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx supabase start   # applies supabase/migrations/*.sql automatically
+```
 
-## Learn More
+Copy the `API_URL` and `ANON_KEY` from the command's output into `.env.local`.
 
-To learn more about Next.js, take a look at the following resources:
+## Migrations
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Schema lives in `supabase/migrations/`, applied in filename order. Apply to a
+project with the Supabase CLI (`supabase db push`) or by running each file in
+the Supabase SQL Editor.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Status
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Day 1 (foundation): project shell, Supabase Auth, schema + seed data for the
+confirmed business rules, and the Configuration pages (Villas, Owners, Villa
+Mapping, Channel Payment Rules, Tax Profiles, Revenue Targets, Settings). See
+`docs/IMPLEMENTATION_PLAN.md` for the full day-by-day build sequence.
