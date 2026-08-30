@@ -28,7 +28,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Monthly Performance", day: "Day 7" },
       { label: "Road to Target", day: "Day 7" },
-      { label: "All Bookings", day: "Day 7" },
+      { label: "All Bookings", href: "/commercial/all-bookings" },
       { label: "Channel Performance", day: "Day 7 (optional)" },
     ],
   },
@@ -52,10 +52,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Data",
     items: [
-      { label: "Daily Upload", day: "Day 2" },
+      { label: "Daily Upload", href: "/data/upload" },
       { label: "Settlement Upload", day: "Day 5" },
       { label: "Bank Mutation Upload", day: "Day 6" },
-      { label: "Import History", day: "Day 2" },
+      { label: "Import History", href: "/data/import-history" },
     ],
   },
   {

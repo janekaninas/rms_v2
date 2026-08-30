@@ -41,6 +41,10 @@ yarn-error.log*
 supabase/.branches
 supabase/.temp
 
+# Claude Code harness local session state
+.claude/scheduled_tasks.lock
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.scratch/
