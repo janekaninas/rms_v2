@@ -7,6 +7,15 @@ interface ChannelLookup {
   channel_type: string;
 }
 
+interface ChannelAliasLookup {
+  channel_id: string;
+  raw_value: string;
+}
+
+function normalizeForMatch(s: string): string {
+  return s.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
 interface MappingLookup {
   match_type: "ROOM_NUMBER" | "ROOM_TYPE" | "LISTING";
   raw_value: string;
@@ -27,6 +36,7 @@ interface ExistingReservation {
 function resolveChannel(
   channelRawName: string | null,
   channels: ChannelLookup[],
+  aliasesByRawValue: Map<string, string>,
 ): { channelId: string | null; unknown: boolean } {
   // IMPORT_LOGIC.md §1: a blank Reservation Name resolves to Direct, not
   // to UNKNOWN_CHANNEL — resolved against the seeded DIRECT channel row.
@@ -34,9 +44,17 @@ function resolveChannel(
     const direct = channels.find((c) => c.channel_type === "DIRECT");
     return direct ? { channelId: direct.id, unknown: false } : { channelId: null, unknown: true };
   }
-  const normalized = channelRawName.trim().toUpperCase();
-  const match = channels.find((c) => c.raw_name.trim().toUpperCase() === normalized);
-  return match ? { channelId: match.id, unknown: false } : { channelId: null, unknown: true };
+  const normalized = normalizeForMatch(channelRawName);
+  const match = channels.find((c) => normalizeForMatch(c.raw_name) === normalized);
+  if (match) return { channelId: match.id, unknown: false };
+
+  // VHP exposes the same channel under different raw text depending on
+  // report type (e.g. Bookings shows "AGODA", the Arrival Report shows
+  // "AGODA, T&T") — confirmed configuration, not inferred at import time.
+  const aliasChannelId = aliasesByRawValue.get(normalized);
+  if (aliasChannelId) return { channelId: aliasChannelId, unknown: false };
+
+  return { channelId: null, unknown: true };
 }
 
 function resolveVilla(
@@ -69,8 +87,9 @@ export async function resolveRows(
   fileName: string,
   rows: NormalizedReservationRow[],
 ): Promise<ImportPreview> {
-  const [{ data: channels }, { data: mappings }, { data: existing }] = await Promise.all([
+  const [{ data: channels }, { data: aliases }, { data: mappings }, { data: existing }] = await Promise.all([
     supabase.from("channels").select("id, raw_name, channel_type"),
+    supabase.from("channel_raw_aliases").select("channel_id, raw_value"),
     supabase.from("room_villa_mapping").select("match_type, raw_value, villa_id").eq("portfolio", "AASHA"),
     supabase
       .from("reservations")
@@ -79,6 +98,9 @@ export async function resolveRows(
   ]);
 
   const channelList = (channels ?? []) as ChannelLookup[];
+  const aliasesByRawValue = new Map<string, string>(
+    ((aliases ?? []) as ChannelAliasLookup[]).map((a) => [normalizeForMatch(a.raw_value), a.channel_id]),
+  );
   const mappingList = (mappings ?? []) as MappingLookup[];
   const existingByNumber = new Map<string, ExistingReservation>(
     ((existing ?? []) as ExistingReservation[]).map((r) => [r.reservation_number, r]),
@@ -98,7 +120,7 @@ export async function resolveRows(
       };
     }
 
-    const { channelId, unknown: channelUnknown } = resolveChannel(row.channelRawName, channelList);
+    const { channelId, unknown: channelUnknown } = resolveChannel(row.channelRawName, channelList, aliasesByRawValue);
     const { villaId, unknown: villaUnknown } = resolveVilla(row.roomNumber, row.roomType, mappingList);
 
     const existingRes = existingByNumber.get(row.reservationNumber) ?? null;
