@@ -27,6 +27,7 @@ interface ExistingReservation {
   reservation_number: string;
   status: "ACTIVE" | "CANCELLED";
   villa_id: string | null;
+  channel_id: string | null;
   room_number: string | null;
   arrival_date: string;
   departure_date: string;
@@ -93,7 +94,7 @@ export async function resolveRows(
     supabase.from("room_villa_mapping").select("match_type, raw_value, villa_id").eq("portfolio", "AASHA"),
     supabase
       .from("reservations")
-      .select("id, reservation_number, status, villa_id, room_number, arrival_date, departure_date, system_gross_revenue")
+      .select("id, reservation_number, status, villa_id, channel_id, room_number, arrival_date, departure_date, system_gross_revenue")
       .eq("portfolio", "AASHA"),
   ]);
 
@@ -141,12 +142,26 @@ export async function resolveRows(
         existingRes.system_gross_revenue !== null &&
         Math.abs(row.systemGrossRevenue - existingRes.system_gross_revenue) > 0.5;
       const statusChanged = row.status !== existingRes.status;
+      // A villa/channel that now resolves where it previously didn't (or
+      // resolves differently) must count as an update too — otherwise a
+      // reservation imported before its room mapping/channel existed
+      // stays permanently unresolved even after the mapping is added,
+      // since re-uploading the identical file would otherwise look
+      // "unchanged" by every other field.
+      const villaChanged = villaId !== existingRes.villa_id;
+      const channelChanged = channelId !== existingRes.channel_id;
 
       if (arrivalChanged || departureChanged) changeFlags.push("ARRIVAL_DEPARTURE_MISMATCH");
       if (roomChanged) changeFlags.push("ROOM_CHANGE_DETECTED");
 
       action =
-        arrivalChanged || departureChanged || roomChanged || rateChanged || statusChanged
+        arrivalChanged ||
+        departureChanged ||
+        roomChanged ||
+        rateChanged ||
+        statusChanged ||
+        villaChanged ||
+        channelChanged
           ? "UPDATE"
           : "UNCHANGED";
     }
