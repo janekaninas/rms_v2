@@ -16,10 +16,13 @@ function str(formData: FormData, key: string): string | null {
 }
 
 // Applies the confirmed Bracha cutover rule (CLAUDE.md rule 19,
-// FINANCIAL_LOGIC.md §3) to a newly created villa: every villa gets the
-// `standard` profile from 2026-08-01 onward; a villa in the Bracha group
-// additionally gets the retired legacy profile for stay dates before that,
-// back to when the villa was actually under management.
+// FINANCIAL_LOGIC.md §3) to a newly created villa. The 2026-08-01 cutover
+// only bounds Bracha's legacy→standard transition — every other villa was
+// always on standard treatment with no cutover, so its `standard`
+// assignment starts from the villa's own management_start_date, not the
+// cutover date (a Day-3 fix: the original version of this function gave
+// every villa a gap before 2026-08-01, since it applied the cutover date
+// as if it were universal).
 async function applyConfirmedTaxProfileAssignments(
   villaId: string,
   villaGroupId: string | null,
@@ -33,39 +36,41 @@ async function applyConfirmedTaxProfileAssignments(
     .eq("name", STANDARD_TAX_PROFILE_NAME)
     .single();
 
+  const { data: braGroup } = await supabase
+    .from("villa_groups")
+    .select("id")
+    .eq("name", BRACHA_GROUP_NAME)
+    .single();
+
+  const isBracha = Boolean(braGroup && villaGroupId && braGroup.id === villaGroupId);
+
   if (standardProfile) {
     await supabase.from("villa_tax_profile_assignments").insert({
       villa_id: villaId,
       tax_profile_id: standardProfile.id,
-      effective_from: BRACHA_CUTOVER_DATE,
+      effective_from: isBracha ? BRACHA_CUTOVER_DATE : managementStartDate,
       effective_to: null,
-      notes: "Auto-assigned on villa creation per the confirmed 2026-08-01 cutover rule.",
+      notes: isBracha
+        ? "Auto-assigned on villa creation per the confirmed 2026-08-01 cutover rule."
+        : "Auto-assigned on villa creation — standard treatment applies from when the villa came under management (no cutover applies outside Bracha).",
     });
   }
 
-  if (villaGroupId) {
-    const { data: braGroup } = await supabase
-      .from("villa_groups")
+  if (isBracha && managementStartDate < BRACHA_CUTOVER_DATE) {
+    const { data: legacyProfile } = await supabase
+      .from("villa_tax_profiles")
       .select("id")
-      .eq("name", BRACHA_GROUP_NAME)
+      .eq("name", BRACHA_LEGACY_PROFILE_NAME)
       .single();
 
-    if (braGroup && braGroup.id === villaGroupId && managementStartDate < BRACHA_CUTOVER_DATE) {
-      const { data: legacyProfile } = await supabase
-        .from("villa_tax_profiles")
-        .select("id")
-        .eq("name", BRACHA_LEGACY_PROFILE_NAME)
-        .single();
-
-      if (legacyProfile) {
-        await supabase.from("villa_tax_profile_assignments").insert({
-          villa_id: villaId,
-          tax_profile_id: legacyProfile.id,
-          effective_from: managementStartDate,
-          effective_to: "2026-07-31",
-          notes: "Auto-assigned on villa creation: retired Bracha legacy profile for stay dates before the confirmed cutover.",
-        });
-      }
+    if (legacyProfile) {
+      await supabase.from("villa_tax_profile_assignments").insert({
+        villa_id: villaId,
+        tax_profile_id: legacyProfile.id,
+        effective_from: managementStartDate,
+        effective_to: "2026-07-31",
+        notes: "Auto-assigned on villa creation: retired Bracha legacy profile for stay dates before the confirmed cutover.",
+      });
     }
   }
 }
