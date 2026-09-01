@@ -138,6 +138,7 @@ export default async function AllBookingsPage({
               <TableHead style={frozenStyle("guest")} className="z-20 bg-card">Guest</TableHead>
               <TableHead style={frozenStyle("channel")} className="z-20 bg-card">Channel</TableHead>
               <TableHead style={frozenStyle("villa")} className="z-20 border-r bg-card">Villa</TableHead>
+              <TableHead>Booking Date</TableHead>
               <TableHead>Arrival</TableHead>
               <TableHead>Departure</TableHead>
               <TableHead>Status</TableHead>
@@ -152,7 +153,7 @@ export default async function AllBookingsPage({
           <TableBody>
             {!reservations || reservations.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={14} className="py-10 text-center text-sm text-muted-foreground">
                   No reservations yet. Use Data → Daily Upload to import bookings.
                 </TableCell>
               </TableRow>
@@ -196,6 +197,7 @@ export default async function AllBookingsPage({
                         {r.villas ? `${r.villas.villa_code} — ${r.villas.name}` : <span className="text-amber-700">Unknown</span>}
                       </span>
                     </TableCell>
+                    <TableCell>{r.booking_date ?? "—"}</TableCell>
                     <TableCell>{r.arrival_date}</TableCell>
                     <TableCell>{r.departure_date}</TableCell>
                     <TableCell>
