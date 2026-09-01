@@ -13,6 +13,8 @@ This document is part of a documentation set that is authoritative for the build
 > **Revision note (v0.4 — Jane's confirmed business rules):** Several `NEEDS CONFIRMATION` items from prior revisions are now resolved (see `FINANCIAL_LOGIC.md` §10 for the full resolved/still-open register). Most visibly: the current managed portfolio is **26 Aasha villas + 7 Balinest villas = 33 villas total**, and the portfolio revenue target is an **explicit, independently-configured figure — IDR 1,500,000,000/month** — never derived by summing villa-level targets; Bracha's legacy 21%-service-charge/PB1-exemption treatment is **retired** going forward (standard calculation applies) and preserved only as an effective-dated historical profile; OTA settlement/commission behavior is resolved by **channel and, where needed, villa/villa-group**, via `channel_payment_rules`, not by channel alone; the confirmed OTA settlement priority order is **Airbnb → Booking.com → Expedia**; and a permanent Baseline/Arrival Report import type now exists for both initial migration and new-villa onboarding. §5, §6, §7, §8, and §10 below reflect these.
 >
 > **Revision note (v0.5 — final consistency correction):** The Bracha cutover date is confirmed as **2026-08-01** and Bracha's Booking.com rate as **18%** (both fully resolved, no longer open — §8 below); an unresolved `channel_payment_rules` lookup has **no silent fallback** — it raises `MISSING_PAYMENT_RULE` and the affected calculation is incomplete/not final, never guessed; management dates are reconfirmed inclusive on both ends everywhere; the Direct/TA override rule is stated with no residual "open question" wording; the `daily_revenue.gross_revenue` field is renamed `commercial_revenue_basis_amount`; and Channel Performance is marked Day-7 **optional** — the first report to defer if OTA Settlement or Bank Reconciliation is at risk.
+>
+> **Revision note (v0.6 — new requirement, documentation only):** §5 (Navigation) and §7 (Required outputs) add a new **Accounting / Revenue Breakdown reporting area** (Property Daily Revenue, Property Period Summary, Owner Revenue Report, Reservation-level nightly breakdown — full spec in `REPORTING_LOGIC.md` §13a), built on the same nightly allocation engine as every other report, no duplicated calculation path. It is a candidate for **Day 4 or later**, alongside the existing Day-7 Accounting Handoff view (§8, §13 in `REPORTING_LOGIC.md`) — not Day-7-critical, and exact day placement is left to `IMPLEMENTATION_PLAN.md`'s next sequencing pass. This revision adds the requirement only; nothing here authorizes starting the work before it is scheduled.
 
 ## 1. Why this exists `[CARRIED OVER, extended]`
 
@@ -99,6 +101,12 @@ RECONCILIATION
   OTA Settlement                         Day 7
   Bank Reconciliation                    Day 7
 
+ACCOUNTING                               `[NEW — candidate Day 4+, not yet scheduled]`
+  Property Daily Revenue
+  Property Period Summary
+  Owner Revenue Report
+  Reservation Nightly Breakdown
+
 OPERATIONS
   Expenses                               Phase 2 (Days 8–10)
 
@@ -172,6 +180,7 @@ The original seven outputs (All Bookings, daily revenue, Monthly Performance, AR
 12. **Expense Reporting** — Aasha/Solio/Owner-borne expenses by category, villa, and period.
 13. **Aasha P&L** and **Solio P&L**.
 14. **Owner Statement** and **Owner Payout**, per villa/owner/period.
+15. **`[NEW]`** **Accounting / Revenue Breakdown reporting area** — Property Daily Revenue, Property Period Summary, Owner Revenue Report, and a standalone Reservation-level nightly breakdown, all reusing the same nightly allocation engine and source tables as items 1–11 above, no separate calculation path (`REPORTING_LOGIC.md` §13a). Candidate for Day 4 or later; not Day-7-critical.
 
 ## 8. Day-7 production launch vs. Days 8–14 Phase 2 `[REVISED — supersedes the earlier "two-week MVP" framing; see `IMPLEMENTATION_PLAN.md` for the day-by-day sequence]`
 
@@ -192,6 +201,7 @@ The original seven outputs (All Bookings, daily revenue, Monthly Performance, AR
 - Excel export of the core reports if feasible without threatening the Day-7 date — correct tabular data takes priority over exact legacy-workbook styling if a choice must be made
 
 ### Moves to Days 8–14 Phase 2 (post-launch, not Day-7 blockers)
+- **`[NEW]`** Accounting / Revenue Breakdown reporting area (Property Daily Revenue, Property Period Summary, Owner Revenue Report, Reservation-level nightly breakdown — `REPORTING_LOGIC.md` §13a) — a candidate for Day 4 (it depends only on the same `daily_revenue`/`reservations` queries Monthly Performance already uses, so it could land as early as Day 4 if that day has room) but not a Day-7 launch blocker either way; exact placement is `IMPLEMENTATION_PLAN.md`'s call, not committed by this spec revision
 - Expense recording, `paid_by`/`borne_by` classification, expense allocation, vendors, expense categories (Days 8–10)
 - Management agreements (configurable fee %/basis per villa/contract), management fee calculation, owner statements, owner payouts (Days 11–12)
 - Aasha P&L, Solio P&L, owner-facing statement export, Excel export refinements for the Phase 2 reports (Days 13–14)

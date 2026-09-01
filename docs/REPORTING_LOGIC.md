@@ -7,6 +7,8 @@
 > **Final consistency correction (this revision):** §2b's occupancy-window bracket is restated as inclusive on both ends, `[management_start_date, management_end_date]`, matching `DATA_MODEL.md`; §1's Gross Revenue field now cites the renamed `daily_revenue.commercial_revenue_basis_amount`; §5 (Reconciliation) adds that `MISSING_PAYMENT_RULE` is blocking, not informational, and excludes an affected reservation from finalized totals; and §9 (Channel Performance) is downgraded from Day-7-critical to **Day-7 optional** — the first report to defer if OTA Settlement or Bank Reconciliation is at risk.
 >
 > **Revision note (v0.6 — confirmed nightly allocation regimes):** §1's All Bookings financial columns are corrected — they must show a computed figure (blending actual Room Revenue Breakdown nights with the query-time Estimated Remaining Night Rate for the rest, `FINANCIAL_LOGIC.md` §7a) as soon as a reservation's Booking/Arrival Report total is known, not only once Room Revenue Breakdown exists. §5 (Reconciliation) and §6 (Drill-down) are updated for the two new exception types (`ROOM_REVENUE_TOTAL_MISMATCH`, and `MANUAL_REVENUE_OVERRIDE_PENDING`'s extended meaning for Direct/Individual/Travel-Agent reservations) and for showing estimated vs. actual nights distinctly in the per-reservation breakdown.
+>
+> **Revision note (v0.7 — new requirement, documentation only, not implemented in Day 3):** New §13a defines a flexible **Accounting / Revenue Breakdown reporting area** (Property Daily Revenue, Property Period Summary, Owner Revenue Report, and a standalone Reservation-level nightly breakdown), built entirely on the existing nightly allocation engine (`FINANCIAL_LOGIC.md` §7a, `daily_revenue`) — no new or duplicated financial calculation path. §1 (All Bookings) is extended with owner and reconciliation-state filters to match. This is a requirements addition for future scheduling (candidate Day 4+, alongside the Accounting Handoff view, §13) — it does not change or delay the Day 3 revenue-allocation correction, and nothing in this revision note authorizes starting Day 4 work.
 
 Defines the calculation and query shape behind every reporting page. All aggregation is server/database-side (indexed queries against `reservations` and `daily_revenue`), per the performance requirements — the browser never recomputes portfolio-wide totals from raw rows.
 
@@ -38,9 +40,10 @@ Columns (per the brief's explicit list, mapped to `DATA_MODEL.md` fields):
 | Source | `reservations.portfolio` (AASHA / BALINEST) |
 
 Requirements:
-- **Search/filter**: by reservation number, guest name, villa, channel, status, date range (arrival/departure/stay overlap), source/portfolio. Filtering must translate to indexed WHERE clauses, not client-side array filtering of the whole table.
+- **Search/filter**: by reservation number, guest name, villa(s) (multi-select), owner (`villas.owner_id`, once assigned), channel, reservation status, date range (arrival/departure/stay overlap), source/portfolio, and reconciliation state (`[NEW — v0.7]` open/none, and which `reconciliation_exceptions` type, per §5). Filtering must translate to indexed WHERE clauses, not client-side array filtering of the whole table.
 - **Pagination or virtualization** is required once the ledger exceeds a page-worth of rows (per performance requirements) — do not load all reservations into the browser at once.
 - Cancelled reservations remain visible here (filterable, not hidden) — this is the ledger, and cancelled history must remain available for reporting.
+- `[NEW — v0.7]` Drill-down from any row goes to the same per-reservation nightly breakdown defined in §6, which is also exposed as its own standalone, filterable/exportable report — see §13a's "Reservation-level nightly breakdown" view. Same query, two entry points; not two implementations.
 
 ## 2. Monthly Performance
 
@@ -263,6 +266,57 @@ Revenue Recognized | Expected Receivable | OTA Settlement | Cash Received | Diff
 ```
 
 filtered by date, OTA/channel, villa, settlement, and status. This is a read/query view over the same tables as §8–§12 above (`daily_revenue`, `reservations`, `ota_settlement_*`, `bank_transactions`) — it introduces no new calculation, only a wide, exportable projection of numbers already computed elsewhere, consistent with "avoid having multiple pages independently calculate the same financial measure." Excel export of this view follows the same real-cells requirement as §7.
+
+## 13a. `[NEW — v0.7, requirement only, candidate Day 4+, not implemented in Day 3]` Accounting / Revenue Breakdown Reporting Area
+
+A flexible reporting area for however Jane's own accounting/bookkeeping consumes this data — distinct from, but adjacent to, the single wide Accounting Handoff view (§13). Where §13 is one exportable projection of the revenue-to-cash chain, this area is a set of four accountant-facing views over the **same nightly allocation engine** the rest of the platform already uses (`FINANCIAL_LOGIC.md` §7a, `daily_revenue`, `reservations`). This introduces **no new calculation logic anywhere** — every figure here is the identical actual-plus-estimated blend that All Bookings (§1), Monthly Performance (§2), and Accounting Handoff (§13) already compute, from the same source tables and the same allocation function. If a number in this area ever disagrees with All Bookings or Monthly Performance for the same reservation/stay-date, that is a bug to fix, not a legitimate "accounting adjustment" — there is exactly one calculation path, reused everywhere.
+
+**Live refresh, no snapshot step.** Every view queries `daily_revenue`/`reservations` (or the same rollup query Monthly Performance/Summary use, §3) at render/export time. A Booking/Arrival Report import, a Room Revenue Breakdown import, or a manual override being approved must be reflected the next time any of these four views is loaded or exported — there is no separate accounting batch, snapshot, or precomputed ledger sitting between the source data and this reporting area.
+
+**Allocation rules governing every figure here (restated from `FINANCIAL_LOGIC.md` §7a, not reimplemented):**
+- **OTA bookings**: the Booking/Arrival Report Total Revenue is the authoritative reservation total from the moment it's known. Room Revenue Breakdown only ever progressively clarifies the *nightly* allocation (via the Remaining Revenue / unresolved-nights estimate) — it never changes the reservation total. A `ROOM_REVENUE_TOTAL_MISMATCH` reservation still shows its actual per-night data here, with the discrepancy flagged (§5), never a silently substituted total.
+- **Direct/Individual/Travel Agent bookings with an approved manual override**: the approved manual revenue is the authoritative total, evenly split per stay night. Room Revenue Breakdown must **not** override this allocation in any view in this area, including Property Daily Revenue and the Owner Revenue Report — the same precedence rule as everywhere else in the platform.
+- Any reservation with an open `MISSING_PAYMENT_RULE` exception is incomplete, not final (§5) — excluded from finalized subtotals/totals in every view below, or visibly flagged as provisional, exactly as in All Bookings/Monthly Performance. No view in this area computes a different, more permissive rule.
+
+### Required views
+
+**1. Property Daily Revenue** — one row per stay-date for a given villa (or set of villas), accountant-style columns:
+
+| Column | Source |
+|---|---|
+| Date | `daily_revenue.stay_date` (or the estimated stay-date for a not-yet-actual night, §6) |
+| Guest | `reservations.guest_name` |
+| Check-in / Check-out | `reservations.arrival_date` / `departure_date` |
+| Nights | `reservations.nights` |
+| Channel | `channels.display_name` |
+| Commercial Revenue Basis | actual `daily_revenue.commercial_revenue_basis_amount`, or the estimated per-night amount where no actual row exists yet (§7a) |
+| Commission | actual or computed-on-estimate, per §7a |
+| VAT | actual or computed-on-estimate |
+| PB1 | actual or computed-on-estimate |
+| Net Revenue | actual or computed-on-estimate |
+| Allocation Status | `Actual` / `Estimated` (same distinction as the drill-down, §6), plus any open reconciliation exception for the reservation (`MISSING_PAYMENT_RULE`, `ROOM_REVENUE_TOTAL_MISMATCH`, `MANUAL_REVENUE_OVERRIDE_PENDING`) shown inline, not hidden behind a separate page |
+
+Grain: villa × stay-date × reservation (a villa with overlapping bookings across units shows one row per reservation-night, not a collapsed villa-day total — that rollup is Property Period Summary, below).
+
+**2. Property Period Summary** — one villa (or villa selection) rolled up to the selected period (month, or a custom date range), reusing the exact Monthly Performance/Summary aggregation (§2/§3): room nights sold, occupancy %, ARR, gross revenue, commission, VAT, PB1, net revenue, count of nights still `Estimated`, count of reservations with an open blocking exception. Do not build a second period-rollup query — this is the same `GROUP BY villa_id, stay_date` aggregation as §2a, re-presented with accounting-style columns and totals.
+
+**3. Owner Revenue Report** — across every villa belonging to one owner (`villas.owner_id` → `owners`, `DATA_MODEL.md` §1), for a selected period: per-villa subtotal (same columns as Property Period Summary) plus an owner-level grand total. A villa with no `owner_id` assigned does not appear in any owner's report (it is not silently attributed to a default owner). Reuses the villa/date aggregation with `owner_id` as an additional grouping key, per the same principle already stated for portfolio/owner rollups in §4 — do not build owner reporting as a one-off calculation.
+
+**4. Reservation-level nightly breakdown** — the exact per-reservation night list already defined as the All Bookings drill-down (§6: stay date, actual/estimated status, gross, commission, VAT, service charge extraction, PB1, net, per night), exposed here as its own standalone, filterable, exportable report rather than only reachable by opening one reservation at a time. Same query as §6's drill-down — a list view over many reservations' worth of nights at once, not a new calculation.
+
+### Common filters (all four views)
+
+Date / month / custom period; portfolio (Aasha / Balinest); owner; villa(s) (multi-select); channel; reservation status; `revenue_type` (`STAY` / `CANCELLATION_FEE` / `NO_SHOW` / `REFUND` / `ADJUSTMENT`, `DATA_MODEL.md` §2); and an actual-vs-estimated allocation filter (show only actual nights, only estimated nights, or both — useful for an accountant who wants to see exactly what's still provisional before closing a period).
+
+### Exports
+
+- CSV/XLSX with real numeric and date cells (same requirement as §7 — no rendered-image or string-formatted numbers).
+- A printable/PDF report rendering, for handing a page directly to Jane's accountant.
+- Every export reflects the filters currently applied on screen — never a full unfiltered dump while filters are active. Generated server-side from the same aggregation queries powering the on-screen view, per §7's existing "do not maintain a separate export calculation path" rule.
+
+### Scope note
+
+This section defines calculation and view requirements only. It does not commit this work to a specific day — see `PRODUCT_SPEC.md` §5/§7/§8 for where it sits in navigation and required outputs, and `IMPLEMENTATION_PLAN.md` for eventual day sequencing. It is explicitly **not** part of the Day 3 revenue-allocation correction and must not be started until a later day is scheduled for it.
 
 ## 14. `[NEW — Phase 2, Days 8–14]` Expense Reporting
 
