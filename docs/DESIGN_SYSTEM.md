@@ -31,10 +31,22 @@ Do not introduce additional accent hues beyond violet + the semantic positive/ne
 
 ## 3. Layout
 
-- **Persistent left sidebar** (as in the reference): grouped nav sections with small-caps or uppercase section labels (`COMMAND`, `COMMERCE`, `FINANCE`, `PLATFORM` in the reference → here: no section grouping needed at v1's small page count, see `PRODUCT_SPEC.md` §6 navigation — a flat list is appropriate until the page count grows). Active item gets a filled dark/violet-tinted background with an icon, matching the reference's "Pricing Engine" active state.
+- **Persistent left sidebar** (as in the reference): grouped nav sections with small-caps or uppercase section labels (`COMMAND`, `COMMERCE`, `FINANCE`, `PLATFORM` in the reference → here: `OVERVIEW`/`COMMERCIAL`/`RECONCILIATION`/`OPERATIONS`/`FINANCE`/`DATA`/`CONFIGURATION`, matching `PRODUCT_SPEC.md` §5's navigation map `[CORRECTED — the section grouping is and always has been implemented; an earlier draft of this line incorrectly described it as a flat list]`). Active item gets a filled dark/violet-tinted background with an icon, matching the reference's "Pricing Engine" active state. `[NEW]` Collapsible — see §3a.
 - **Top bar per page**: breadcrumb-style small label above an `<h1>` page title (reference: small tag "Pricing Engine" above the large "Pricing Engine" heading) plus right-aligned page-level actions (e.g. "Sync", "Report", primary CTA button in violet).
 - **Content is a grid of white cards on the light neutral background**, thin border, no or near-zero shadow, generous but not excessive internal padding, small border-radius (6–8px, not the heavily rounded "SaaS marketing" look).
 - **Desktop-first**: no responsive/mobile optimization required for v1 (per brief — desktop-first, information-dense); do not spend effort on a mobile layout.
+
+## 3a. `[NEW]` Collapsible sidebar
+
+The sidebar has two width states, toggled by one explicit, always-visible control in the sidebar's own header (not tucked into a menu) — an icon button using a panel-style icon (collapse/expand), not a bare chevron alone, so its purpose reads clearly at a glance.
+
+- **Expanded** (default, ~16rem): section labels, page names, and each item's icon are all shown, exactly as in §3.
+- **Collapsed** (narrow icon rail, ~4rem): only icons remain, centered; section labels are hidden entirely (no truncated/rotated text) — a slim divider gap between sections is enough grouping cues at this width.
+- **Active-page highlight** uses the identical violet-filled treatment in both states — the same element, same class logic, just with its label hidden when collapsed, never a second "collapsed-mode" highlight style to keep in sync.
+- **Tooltips on hover, collapsed only**: every icon (including disabled roadmap placeholders, which show their label plus the "Day N"/"Phase 2" note) exposes its full label via the native title-attribute tooltip — no dedicated tooltip component/dependency needed for this, consistent with the precedent set for the All Bookings Guest-cell tooltip.
+- **Main content reflow is automatic, not computed**: the sidebar and main content are the only two children of one flex row: the sidebar's width is the only thing that changes, and `flex-1` on the main content already claims whatever width that frees up — no JS/CSS coordination between the two is needed or should be added. The page-content wrapper's own max-width is a generous ceiling (wide enough that collapsing visibly grants more room on real laptop/desktop screens) rather than the sidebar-oblivious fixed cap used before this addition.
+- **Preference persistence**: the collapsed/expanded choice is a per-browser `localStorage` preference (not a server-side/account setting) — it survives a refresh, and applying it on load must not itself count as a user-visible "animation" (no slide-open-then-shut flash for a returning collapsed-preferring user).
+- **Transitions stay subtle and functional**: a short width transition on manual toggle only (no motion on initial load), no easing flourishes, no icon-rotation or fade choreography — this is a state change, not a moment to showcase motion design, consistent with §1's "explicitly avoid... animated counters" instruction generalized to navigation.
 
 ## 4. Tables (this is the most important component — most pages are tables)
 

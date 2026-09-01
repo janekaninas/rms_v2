@@ -15,6 +15,8 @@ This document is part of a documentation set that is authoritative for the build
 > **Revision note (v0.5 — final consistency correction):** The Bracha cutover date is confirmed as **2026-08-01** and Bracha's Booking.com rate as **18%** (both fully resolved, no longer open — §8 below); an unresolved `channel_payment_rules` lookup has **no silent fallback** — it raises `MISSING_PAYMENT_RULE` and the affected calculation is incomplete/not final, never guessed; management dates are reconfirmed inclusive on both ends everywhere; the Direct/TA override rule is stated with no residual "open question" wording; the `daily_revenue.gross_revenue` field is renamed `commercial_revenue_basis_amount`; and Channel Performance is marked Day-7 **optional** — the first report to defer if OTA Settlement or Bank Reconciliation is at risk.
 >
 > **Revision note (v0.6 — new requirement, documentation only):** §5 (Navigation) and §7 (Required outputs) add a new **Accounting / Revenue Breakdown reporting area** (Property Daily Revenue, Property Period Summary, Owner Revenue Report, Reservation-level nightly breakdown — full spec in `REPORTING_LOGIC.md` §13a), built on the same nightly allocation engine as every other report, no duplicated calculation path. It is a candidate for **Day 4 or later**, alongside the existing Day-7 Accounting Handoff view (§8, §13 in `REPORTING_LOGIC.md`) — not Day-7-critical, and exact day placement is left to `IMPLEMENTATION_PLAN.md`'s next sequencing pass. This revision adds the requirement only; nothing here authorizes starting the work before it is scheduled.
+>
+> **Revision note (v0.7 — collapsible sidebar, implemented this revision):** §5's navigation shell is now collapsible (expanded: labels + icons; collapsed: icon-only rail with hover tooltips), a per-browser `localStorage` preference, with the active-page highlight preserved in both states and main content automatically reflowing to use the freed width. Full behavioral/visual spec in `DESIGN_SYSTEM.md` §3a. This is UI shell infrastructure applying to the navigation map as a whole, not a change to which pages exist, their day placement, or the four-domain architecture (§2) — nothing here reopens any of that.
 
 ## 1. Why this exists `[CARRIED OVER, extended]`
 
@@ -133,6 +135,8 @@ CONFIGURATION
 ```
 
 This is a conceptual map, not a page-creation mandate. Several conceptual items collapse into one page during implementation where that's cleaner (e.g., a single Reconciliation page with tabs for Booking/Settlement/Bank, rather than three separate routes, is an acceptable simplification). **Do not create a page merely because there is a menu item above** — build the page when its data exists and is usable, per the phased plan in `IMPLEMENTATION_PLAN.md`. Avoid unnecessary navigation complexity; this is still meant to feel dense and operational, not like an enterprise suite with dozens of thin screens.
+
+**`[NEW — v0.7]`** The sidebar rendering this map is collapsible — an explicit toggle switches between the full expanded view above (section labels + page names + icons) and a narrow icon-only rail with hover tooltips, the choice remembered per-browser. This changes only how the map is *displayed*, never what's in it — the section/page structure, day placement, and "don't build ahead of the data" rule above are all unaffected. Full spec: `DESIGN_SYSTEM.md` §3a.
 
 ## 6. Glossary `[CARRIED OVER, extended]`
 
