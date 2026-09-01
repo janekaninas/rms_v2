@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -30,9 +29,20 @@ const FROZEN_COLS = [
   { key: "villa", width: 280, left: 530 },
 ] as const;
 
-function frozenStyle(colKey: (typeof FROZEN_COLS)[number]["key"]): CSSProperties {
+function frozenStyle(colKey: (typeof FROZEN_COLS)[number]["key"], extra?: CSSProperties): CSSProperties {
   const col = FROZEN_COLS.find((c) => c.key === colKey)!;
-  return { position: "sticky", left: col.left, width: col.width, minWidth: col.width, maxWidth: col.width };
+  return { position: "sticky", left: col.left, width: col.width, minWidth: col.width, maxWidth: col.width, ...extra };
+}
+
+// DESIGN_SYSTEM.md §3b z-index scale: 10 = sticky-left body cells, 20 =
+// sticky-top header cells, 30 = corner cells sticky in both directions
+// (the four frozen columns' own header cells, here).
+function headerStyle(): CSSProperties {
+  return { position: "sticky", top: 0, zIndex: 20 };
+}
+
+function cornerHeaderStyle(): CSSProperties {
+  return { position: "sticky", top: 0, zIndex: 30 };
 }
 
 function fmt(v: number | null | undefined) {
@@ -112,29 +122,41 @@ export default async function AllBookingsPage({
   }
 
   return (
-    <div>
-      <PageHeader eyebrow="Commercial" title="All Bookings" />
+    // DESIGN_SYSTEM.md §3b: same bounded, independently-scrolling pattern as
+    // Monthly Performance — h-full/min-h-0 only resolves correctly because
+    // the shared layout wrapper is a real h-full, and a shrink-0 zone keeps
+    // the page header/filters fixed while only the table body scrolls.
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0">
+        <PageHeader eyebrow="Commercial" title="All Bookings" />
+        <AllBookingsFilters />
+      </div>
 
-      <AllBookingsFilters />
-
-      <div className="overflow-x-auto rounded-lg border bg-card">
-        <Table>
+      {/*
+        Raw <table>, not the shared Table wrapper: that component hardcodes
+        its own overflow-x-auto div around <table>, which would create a
+        second, nested, competing horizontal scroll context — sticky-left
+        cells need exactly one scrolling ancestor per axis (DESIGN_SYSTEM.md
+        §3b).
+      */}
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border bg-card">
+        <table className="w-full caption-bottom text-sm">
           <TableHeader>
             <TableRow>
-              <TableHead style={frozenStyle("reservation")} className="z-20 bg-card">Reservation #</TableHead>
-              <TableHead style={frozenStyle("guest")} className="z-20 bg-card">Guest</TableHead>
-              <TableHead style={frozenStyle("channel")} className="z-20 bg-card">Channel</TableHead>
-              <TableHead style={frozenStyle("villa")} className="z-20 border-r bg-card">Villa</TableHead>
-              <TableHead>Booking Date</TableHead>
-              <TableHead>Arrival</TableHead>
-              <TableHead>Departure</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Gross</TableHead>
-              <TableHead className="text-right">Commission</TableHead>
-              <TableHead className="text-right">VAT</TableHead>
-              <TableHead className="text-right">PB1</TableHead>
-              <TableHead className="text-right">Net</TableHead>
-              <TableHead className="w-10" />
+              <TableHead style={frozenStyle("reservation", cornerHeaderStyle())} className="bg-card">Reservation #</TableHead>
+              <TableHead style={frozenStyle("guest", cornerHeaderStyle())} className="bg-card">Guest</TableHead>
+              <TableHead style={frozenStyle("channel", cornerHeaderStyle())} className="bg-card">Channel</TableHead>
+              <TableHead style={frozenStyle("villa", cornerHeaderStyle())} className="border-r bg-card">Villa</TableHead>
+              <TableHead style={headerStyle()} className="bg-card">Booking Date</TableHead>
+              <TableHead style={headerStyle()} className="bg-card">Arrival</TableHead>
+              <TableHead style={headerStyle()} className="bg-card">Departure</TableHead>
+              <TableHead style={headerStyle()} className="bg-card">Status</TableHead>
+              <TableHead style={headerStyle()} className="bg-card text-right">Gross</TableHead>
+              <TableHead style={headerStyle()} className="bg-card text-right">Commission</TableHead>
+              <TableHead style={headerStyle()} className="bg-card text-right">VAT</TableHead>
+              <TableHead style={headerStyle()} className="bg-card text-right">PB1</TableHead>
+              <TableHead style={headerStyle()} className="bg-card text-right">Net</TableHead>
+              <TableHead style={headerStyle()} className="w-10 bg-card" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -246,11 +268,11 @@ export default async function AllBookingsPage({
               })
             )}
           </TableBody>
-        </Table>
+        </table>
       </div>
 
       {totalPages > 1 ? (
-        <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+        <div className="mt-3 flex shrink-0 items-center justify-between text-sm text-muted-foreground">
           <span>
             Page {page} of {totalPages} ({count} total)
           </span>
