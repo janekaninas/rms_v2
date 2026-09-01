@@ -33,6 +33,8 @@ export interface ResolvedRow {
   /** Set when this update would change arrival/departure/room/rate vs. the stored reservation. */
   changeFlags: string[];
   existingReservationId: string | null;
+  /** The stored booking_date, if any — preserved when this row doesn't supply one (e.g. Baseline import). */
+  existingBookingDate: string | null;
 }
 
 export interface ImportPreview {

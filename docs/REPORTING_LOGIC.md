@@ -9,6 +9,8 @@
 > **Revision note (v0.6 — confirmed nightly allocation regimes):** §1's All Bookings financial columns are corrected — they must show a computed figure (blending actual Room Revenue Breakdown nights with the query-time Estimated Remaining Night Rate for the rest, `FINANCIAL_LOGIC.md` §7a) as soon as a reservation's Booking/Arrival Report total is known, not only once Room Revenue Breakdown exists. §5 (Reconciliation) and §6 (Drill-down) are updated for the two new exception types (`ROOM_REVENUE_TOTAL_MISMATCH`, and `MANUAL_REVENUE_OVERRIDE_PENDING`'s extended meaning for Direct/Individual/Travel-Agent reservations) and for showing estimated vs. actual nights distinctly in the per-reservation breakdown.
 >
 > **Revision note (v0.7 — new requirement, documentation only, not implemented in Day 3):** New §13a defines a flexible **Accounting / Revenue Breakdown reporting area** (Property Daily Revenue, Property Period Summary, Owner Revenue Report, and a standalone Reservation-level nightly breakdown), built entirely on the existing nightly allocation engine (`FINANCIAL_LOGIC.md` §7a, `daily_revenue`) — no new or duplicated financial calculation path. §1 (All Bookings) is extended with owner and reconciliation-state filters to match. This is a requirements addition for future scheduling (candidate Day 4+, alongside the Accounting Handoff view, §13) — it does not change or delay the Day 3 revenue-allocation correction, and nothing in this revision note authorizes starting Day 4 work.
+>
+> **Revision note (v0.8 — UX/data corrections, implemented within the current day):** §6's drill-down now requires a compact booking-summary header and a Print action for the individual reservation record (visual spec in `DESIGN_SYSTEM.md` §9a); §8's Pickup definition is corrected to anchor "new booking" on `reservations.booking_date` (Created Date), never an import timestamp or arrival date — a requirement for when Road to Target/Pickup is built, not yet implemented. No calculation logic already in production changes.
 
 Defines the calculation and query shape behind every reporting page. All aggregation is server/database-side (indexed queries against `reservations` and `daily_revenue`), per the performance requirements — the browser never recomputes portfolio-wide totals from raw rows.
 
@@ -136,6 +138,8 @@ This is a straightforward query against `daily_revenue` (joined to `reservations
 
 **`[NEW — v0.6]`** A reservation-level drill-down must show **every** stay-date, not only the ones with an actual `daily_revenue` row — a stay-date without one yet is computed and shown using the query-time Estimated Remaining Night Rate (`FINANCIAL_LOGIC.md` §7a), visually distinguished from an actual night (consistent with Monthly Performance's and Road to Target's existing actual-vs-estimated treatment, `§2a`/`§8`), never presented as if it were confirmed.
 
+**`[NEW — v0.8]`** The reservation-level drill-down must open with a compact booking-summary header — Reservation Number, Guest, Channel, Villa, Arrival, Departure, Status — above the nightly breakdown, not just the reservation number; and must offer a Print action producing a standalone view of that summary plus the nightly breakdown only (no manual-override form or app chrome), suitable as a guest/reservation financial record. This is the same drill-down defined above with a required header/print treatment — not a second view or a new calculation. Full visual spec (panel width, layout) in `DESIGN_SYSTEM.md` §9a.
+
 ## 7. Excel export
 
 At minimum: All Bookings, Monthly Performance, Summary. Requirements:
@@ -163,7 +167,7 @@ Remaining Days                = days from "today" to end of month (inclusive/exc
 Remaining Available Room Nights = (unit_count × Remaining Days) − (room-nights already booked for those remaining dates)
 Required Revenue per Remaining Day = Gap to Target / Remaining Days
 Required ARR on Remaining RN  = Gap to Target / Remaining Available Room Nights   (guard divide-by-zero: fully booked remainder ⇒ "target already secured" or "target unreachable," not a crash or an infinite number)
-Pickup                        = net new booked revenue (new bookings − cancellations) since a reference point (e.g. yesterday, or since the last time this view was checked) — mirrors the legacy sheet's "PICKUP AASHA" block (new bookings, cancellations, net, accumulation, road-to-target columns), generalized to be villa/portfolio-agnostic and driven by live queries instead of a fixed sheet layout
+Pickup                        = net new booked revenue (new bookings − cancellations) since a reference point (e.g. yesterday, or since the last time this view was checked) — mirrors the legacy sheet's "PICKUP AASHA" block (new bookings, cancellations, net, accumulation, road-to-target columns), generalized to be villa/portfolio-agnostic and driven by live queries instead of a fixed sheet layout. `[NEW — v0.8]` "New bookings since a reference point" means `reservations.booking_date` (Created Date, `IMPORT_LOGIC.md` §1) falls after that reference point — never the import/upload timestamp and never the arrival date. This is a requirement for when Pickup is built (Road to Target, not yet started); it does not change anything already implemented.
 ```
 
 ### Portfolio rollup

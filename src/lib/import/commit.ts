@@ -16,7 +16,12 @@ function toReservationPayload(r: ResolvedRow) {
     room_number: r.row.roomNumber,
     room_type: r.row.roomType,
     guest_name: r.row.guestName,
-    booking_date: r.row.bookingDate,
+    // IMPORT_LOGIC.md §1: Booking Date is Created Date from the New
+    // Bookings CSV — authoritative when this row supplies it. A source
+    // with no creation-date data of its own (Baseline/Arrival Report
+    // Snapshot, §11) must never blank out an already-known booking_date
+    // on a later re-import/update.
+    booking_date: r.row.bookingDate ?? r.existingBookingDate,
     arrival_date: r.row.arrivalDate,
     departure_date: r.row.departureDate,
     nights: computeNights(r.row.arrivalDate, r.row.departureDate),

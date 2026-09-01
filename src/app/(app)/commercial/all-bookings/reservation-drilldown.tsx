@@ -28,15 +28,38 @@ function fmt(v: number | null) {
   return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
+function SummaryField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="truncate text-sm font-medium" title={value}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 export function ReservationDrilldown({
   reservationId,
   reservationNumber,
+  guestName,
+  channelName,
+  villaLabel,
+  arrivalDate,
+  departureDate,
+  status,
   nights,
   hasApprovedOverride,
   trigger,
 }: {
   reservationId: string;
   reservationNumber: string;
+  guestName: string | null;
+  channelName: string | null;
+  villaLabel: string | null;
+  arrivalDate: string;
+  departureDate: string;
+  status: string;
   nights: NightAllocation[];
   hasApprovedOverride: boolean;
   trigger: React.ReactNode;
@@ -52,20 +75,44 @@ export function ReservationDrilldown({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>{trigger}</SheetTrigger>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle>Reservation {reservationNumber}</SheetTitle>
-        </SheetHeader>
+      <SheetContent
+        side="right"
+        className="w-full overflow-y-auto sm:max-w-4xl"
+        style={{ maxWidth: "min(96vw, 56rem)" }}
+      >
+        <div id="reservation-print-area">
+          <SheetHeader className="gap-3 border-b pb-4">
+            <div className="flex items-center justify-between">
+              <SheetTitle>Reservation {reservationNumber}</SheetTitle>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mr-8 print:hidden"
+                onClick={() => window.print()}
+              >
+                Print
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+              <SummaryField label="Guest" value={guestName ?? "—"} />
+              <SummaryField label="Channel" value={channelName ?? "—"} />
+              <SummaryField label="Villa" value={villaLabel ?? "—"} />
+              <SummaryField label="Status" value={status} />
+              <SummaryField label="Arrival" value={arrivalDate} />
+              <SummaryField label="Departure" value={departureDate} />
+            </div>
+          </SheetHeader>
 
-        <div className="space-y-6 px-4 pb-6">
-          {incomplete ? (
-            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
-              No channel payment rule resolves for this reservation — figures below are
-              incomplete, not final (MISSING_PAYMENT_RULE).
-            </p>
-          ) : null}
+          <div className="space-y-6 px-4 pt-4">
+            {incomplete ? (
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 print:hidden">
+                No channel payment rule resolves for this reservation — figures below are
+                incomplete, not final (MISSING_PAYMENT_RULE).
+              </p>
+            ) : null}
 
-          <div className="overflow-x-auto rounded-md border">
+            <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -112,8 +159,11 @@ export function ReservationDrilldown({
                 )}
               </TableBody>
             </Table>
+            </div>
           </div>
+        </div>
 
+        <div className="px-4 pb-6 print:hidden">
           <div className="rounded-lg border p-4">
             <h3 className="mb-1 text-sm font-medium text-foreground">Manual Revenue Override</h3>
             <p className="mb-3 text-xs text-muted-foreground">

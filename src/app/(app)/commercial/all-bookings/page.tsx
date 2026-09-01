@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,22 @@ import { allocateReservationNights } from "@/lib/financial/allocate";
 import type { ChannelPaymentRuleRow, TaxProfileAssignmentRow, TaxProfileRow } from "@/lib/financial/types";
 
 const PAGE_SIZE = 50;
+
+// DESIGN_SYSTEM.md §9a: Reservation #/Guest/Channel/Villa stay pinned
+// while the rest of the row scrolls horizontally. Fixed pixel widths
+// (not just min-width) are required so a long value can't widen the
+// frozen section and throw off the sticky `left` offsets below.
+const FROZEN_COLS = [
+  { key: "reservation", width: 120, left: 0 },
+  { key: "guest", width: 240, left: 120 },
+  { key: "channel", width: 170, left: 360 },
+  { key: "villa", width: 280, left: 530 },
+] as const;
+
+function frozenStyle(colKey: (typeof FROZEN_COLS)[number]["key"]): CSSProperties {
+  const col = FROZEN_COLS.find((c) => c.key === colKey)!;
+  return { position: "sticky", left: col.left, width: col.width, minWidth: col.width, maxWidth: col.width };
+}
 
 function fmt(v: number | null | undefined) {
   if (v === null || v === undefined) return "—";
@@ -117,10 +134,10 @@ export default async function AllBookingsPage({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Reservation #</TableHead>
-              <TableHead>Guest</TableHead>
-              <TableHead>Channel</TableHead>
-              <TableHead>Villa</TableHead>
+              <TableHead style={frozenStyle("reservation")} className="z-20 bg-card">Reservation #</TableHead>
+              <TableHead style={frozenStyle("guest")} className="z-20 bg-card">Guest</TableHead>
+              <TableHead style={frozenStyle("channel")} className="z-20 bg-card">Channel</TableHead>
+              <TableHead style={frozenStyle("villa")} className="z-20 border-r bg-card">Villa</TableHead>
               <TableHead>Arrival</TableHead>
               <TableHead>Departure</TableHead>
               <TableHead>Status</TableHead>
@@ -159,13 +176,25 @@ export default async function AllBookingsPage({
 
                 return (
                   <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.reservation_number}</TableCell>
-                    <TableCell>{r.guest_name ?? "—"}</TableCell>
-                    <TableCell>
-                      {r.channels?.display_name ?? <span className="text-amber-700">Unknown</span>}
+                    <TableCell style={frozenStyle("reservation")} className="z-10 bg-card font-medium">
+                      <span className="block truncate" title={r.reservation_number}>
+                        {r.reservation_number}
+                      </span>
                     </TableCell>
-                    <TableCell>
-                      {r.villas ? `${r.villas.villa_code} — ${r.villas.name}` : <span className="text-amber-700">Unknown</span>}
+                    <TableCell style={frozenStyle("guest")} className="z-10 bg-card">
+                      <span className="block truncate" title={r.guest_name ?? undefined}>
+                        {r.guest_name ?? "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell style={frozenStyle("channel")} className="z-10 bg-card">
+                      <span className="block truncate">
+                        {r.channels?.display_name ?? <span className="text-amber-700">Unknown</span>}
+                      </span>
+                    </TableCell>
+                    <TableCell style={frozenStyle("villa")} className="z-10 border-r bg-card">
+                      <span className="block truncate">
+                        {r.villas ? `${r.villas.villa_code} — ${r.villas.name}` : <span className="text-amber-700">Unknown</span>}
+                      </span>
                     </TableCell>
                     <TableCell>{r.arrival_date}</TableCell>
                     <TableCell>{r.departure_date}</TableCell>
@@ -208,6 +237,12 @@ export default async function AllBookingsPage({
                       <ReservationDrilldown
                         reservationId={r.id}
                         reservationNumber={r.reservation_number}
+                        guestName={r.guest_name}
+                        channelName={r.channels?.display_name ?? null}
+                        villaLabel={r.villas ? `${r.villas.villa_code} — ${r.villas.name}` : null}
+                        arrivalDate={r.arrival_date}
+                        departureDate={r.departure_date}
+                        status={r.status}
                         nights={allocation.nights}
                         hasApprovedOverride={hasApprovedOverride}
                         trigger={

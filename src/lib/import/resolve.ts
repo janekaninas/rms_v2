@@ -32,6 +32,7 @@ interface ExistingReservation {
   arrival_date: string;
   departure_date: string;
   system_gross_revenue: number | null;
+  booking_date: string | null;
 }
 
 function resolveChannel(
@@ -94,7 +95,7 @@ export async function resolveRows(
     supabase.from("room_villa_mapping").select("match_type, raw_value, villa_id").eq("portfolio", "AASHA"),
     supabase
       .from("reservations")
-      .select("id, reservation_number, status, villa_id, channel_id, room_number, arrival_date, departure_date, system_gross_revenue")
+      .select("id, reservation_number, status, villa_id, channel_id, room_number, arrival_date, departure_date, system_gross_revenue, booking_date")
       .eq("portfolio", "AASHA"),
   ]);
 
@@ -118,6 +119,7 @@ export async function resolveRows(
         villaUnknown: false,
         changeFlags: [],
         existingReservationId: null,
+        existingBookingDate: null,
       };
     }
 
@@ -175,6 +177,7 @@ export async function resolveRows(
       villaUnknown,
       changeFlags,
       existingReservationId: existingRes?.id ?? null,
+      existingBookingDate: existingRes?.booking_date ?? null,
     };
   });
 

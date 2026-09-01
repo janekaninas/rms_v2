@@ -135,3 +135,23 @@
     @apply font-sans;
   }
 }
+
+/* Reservation detail print (DESIGN_SYSTEM.md §9a): scope printing to the
+   #reservation-print-area the drilldown sheet renders — booking summary
+   + nightly breakdown only, none of the app chrome or the override form. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #reservation-print-area,
+  #reservation-print-area * {
+    visibility: visible;
+  }
+  #reservation-print-area {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+}
