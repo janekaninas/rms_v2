@@ -12,7 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { AllBookingsFilters } from "./filters";
-import { ReservationDrilldown, type DrilldownNight } from "./reservation-drilldown";
+import { ReservationDrilldown } from "./reservation-drilldown";
+import { allocateReservationNights } from "@/lib/financial/allocate";
+import type { ChannelPaymentRuleRow, TaxProfileAssignmentRow, TaxProfileRow } from "@/lib/financial/types";
 
 const PAGE_SIZE = 50;
 
@@ -54,42 +56,46 @@ export default async function AllBookingsPage({
   if (error) throw new Error(error.message);
 
   const reservationIds = (reservations ?? []).map((r) => r.id);
+  const channelIds = [...new Set((reservations ?? []).map((r) => r.channel_id).filter((v): v is string => v !== null))];
+  const villaIds = [...new Set((reservations ?? []).map((r) => r.villa_id).filter((v): v is string => v !== null))];
 
-  const [{ data: dailyRows }, { data: overrides }] = await Promise.all([
-    reservationIds.length
-      ? supabase
-          .from("daily_revenue")
-          .select("reservation_id, stay_date, revenue_type, commercial_revenue_basis_amount, commission, commission_vat, service_charge_extraction, pb1, net_revenue")
-          .in("reservation_id", reservationIds)
-      : Promise.resolve({ data: [] }),
-    reservationIds.length
-      ? supabase.from("revenue_overrides").select("reservation_id, status").in("reservation_id", reservationIds)
-      : Promise.resolve({ data: [] }),
-  ]);
+  const [{ data: dailyRows }, { data: overrides }, { data: villaRows }, { data: rules }, { data: assignments }, { data: profiles }] =
+    await Promise.all([
+      reservationIds.length
+        ? supabase
+            .from("daily_revenue")
+            .select("reservation_id, stay_date, commercial_revenue_basis_amount")
+            .in("reservation_id", reservationIds)
+            .eq("revenue_type", "STAY")
+        : Promise.resolve({ data: [] }),
+      reservationIds.length
+        ? supabase.from("revenue_overrides").select("reservation_id, status").in("reservation_id", reservationIds)
+        : Promise.resolve({ data: [] }),
+      villaIds.length
+        ? supabase.from("villas").select("id, villa_group_id").in("id", villaIds)
+        : Promise.resolve({ data: [] }),
+      channelIds.length
+        ? supabase.from("channel_payment_rules").select("*").in("channel_id", channelIds)
+        : Promise.resolve({ data: [] }),
+      villaIds.length
+        ? supabase.from("villa_tax_profile_assignments").select("*").in("villa_id", villaIds)
+        : Promise.resolve({ data: [] }),
+      supabase.from("villa_tax_profiles").select("*"),
+    ]);
 
-  const nightsByReservation = new Map<string, DrilldownNight[]>();
+  const actualByReservation = new Map<string, { stayDate: string; amount: number }[]>();
   for (const row of dailyRows ?? []) {
-    const list = nightsByReservation.get(row.reservation_id as string) ?? [];
-    list.push(row as unknown as DrilldownNight);
-    nightsByReservation.set(row.reservation_id as string, list);
+    const list = actualByReservation.get(row.reservation_id as string) ?? [];
+    list.push({ stayDate: row.stay_date as string, amount: row.commercial_revenue_basis_amount as number });
+    actualByReservation.set(row.reservation_id as string, list);
   }
   const approvedOverrideReservations = new Set(
     (overrides ?? []).filter((o) => o.status === "APPROVED").map((o) => o.reservation_id as string),
   );
-
-  function aggregate(nights: DrilldownNight[]) {
-    if (nights.length === 0) return null;
-    const incomplete = nights.some((n) => n.net_revenue === null);
-    if (incomplete) return { incomplete: true as const };
-    return {
-      incomplete: false as const,
-      gross: nights.reduce((s, n) => s + n.commercial_revenue_basis_amount, 0),
-      commission: nights.reduce((s, n) => s + (n.commission ?? 0), 0),
-      vat: nights.reduce((s, n) => s + (n.commission_vat ?? 0), 0),
-      pb1: nights.reduce((s, n) => s + (n.pb1 ?? 0), 0),
-      net: nights.reduce((s, n) => s + (n.net_revenue ?? 0), 0),
-    };
-  }
+  const villaGroupByVilla = new Map((villaRows ?? []).map((v) => [v.id as string, v.villa_group_id as string | null]));
+  const ruleList = (rules ?? []) as ChannelPaymentRuleRow[];
+  const assignmentList = (assignments ?? []) as TaxProfileAssignmentRow[];
+  const profileList = (profiles ?? []) as TaxProfileRow[];
 
   const totalPages = count ? Math.ceil(count / PAGE_SIZE) : 1;
 
@@ -135,8 +141,22 @@ export default async function AllBookingsPage({
               </TableRow>
             ) : (
               reservations.map((r) => {
-                const nights = nightsByReservation.get(r.id) ?? [];
-                const agg = aggregate(nights);
+                const hasApprovedOverride = approvedOverrideReservations.has(r.id);
+                const authoritativeTotal = r.final_gross_revenue ?? r.system_gross_revenue ?? null;
+                const allocation = allocateReservationNights({
+                  arrivalDate: r.arrival_date,
+                  departureDate: r.departure_date,
+                  authoritativeTotal,
+                  actualRows: actualByReservation.get(r.id) ?? [],
+                  channelId: r.channel_id,
+                  villaId: r.villa_id,
+                  villaGroupId: r.villa_id ? (villaGroupByVilla.get(r.villa_id) ?? null) : null,
+                  rules: ruleList,
+                  assignments: assignmentList,
+                  profiles: profileList,
+                });
+                const gross = allocation.nights.reduce((s, n) => s + n.amount, 0);
+
                 return (
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">{r.reservation_number}</TableCell>
@@ -161,29 +181,35 @@ export default async function AllBookingsPage({
                         {r.status}
                       </Badge>
                     </TableCell>
-                    {agg === null ? (
+                    {authoritativeTotal === null ? (
                       <TableCell colSpan={5} className="text-center text-xs text-muted-foreground">
-                        No revenue imported yet
+                        No booking total yet
                       </TableCell>
-                    ) : agg.incomplete ? (
+                    ) : allocation.missingPaymentRule ? (
                       <TableCell colSpan={5} className="text-center text-xs text-amber-700">
                         Incomplete — MISSING_PAYMENT_RULE
                       </TableCell>
                     ) : (
                       <>
-                        <TableCell className="text-right">{fmt(agg.gross)}</TableCell>
-                        <TableCell className="text-right">{fmt(agg.commission)}</TableCell>
-                        <TableCell className="text-right">{fmt(agg.vat)}</TableCell>
-                        <TableCell className="text-right">{fmt(agg.pb1)}</TableCell>
-                        <TableCell className="text-right font-medium">{fmt(agg.net)}</TableCell>
+                        <TableCell className="text-right">{fmt(gross)}</TableCell>
+                        <TableCell className="text-right">
+                          {fmt(allocation.nights.reduce((s, n) => s + (n.commission ?? 0), 0))}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmt(allocation.nights.reduce((s, n) => s + (n.commissionVat ?? 0), 0))}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmt(allocation.nights.reduce((s, n) => s + (n.pb1 ?? 0), 0))}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{fmt(allocation.totalNetRevenue)}</TableCell>
                       </>
                     )}
                     <TableCell>
                       <ReservationDrilldown
                         reservationId={r.id}
                         reservationNumber={r.reservation_number}
-                        nights={nights}
-                        hasApprovedOverride={approvedOverrideReservations.has(r.id)}
+                        nights={allocation.nights}
+                        hasApprovedOverride={hasApprovedOverride}
                         trigger={
                           <Button variant="outline" size="sm">
                             View

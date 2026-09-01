@@ -5,6 +5,8 @@
 > **Correction (Jane's confirmed rules, this revision):** §2a previously filtered the Monthly Performance villa column set by `active = true` **and** management-date-window overlap. That conjunction was wrong for any *historical* reporting period — a villa Aasha no longer manages must still appear correctly in a report for a month it *did* manage, purely because its `management_start_date`/`management_end_date` window overlaps that reported period. `active` now governs only *current-config, forward-looking* surfaces (villa pickers/dropdowns for new data entry, the Configuration page's default list) — it must never be used to filter a historical report. §8 (Road to Target) is also corrected: the portfolio target is an **explicit, independently-configured `revenue_targets` row** (currently IDR 1,500,000,000/month for the 33-villa portfolio — 26 Aasha + 7 Balinest), never derived by summing villa-level targets, and the Day-7 field list and the "no speculative forecasting" instruction below are new.
 >
 > **Final consistency correction (this revision):** §2b's occupancy-window bracket is restated as inclusive on both ends, `[management_start_date, management_end_date]`, matching `DATA_MODEL.md`; §1's Gross Revenue field now cites the renamed `daily_revenue.commercial_revenue_basis_amount`; §5 (Reconciliation) adds that `MISSING_PAYMENT_RULE` is blocking, not informational, and excludes an affected reservation from finalized totals; and §9 (Channel Performance) is downgraded from Day-7-critical to **Day-7 optional** — the first report to defer if OTA Settlement or Bank Reconciliation is at risk.
+>
+> **Revision note (v0.6 — confirmed nightly allocation regimes):** §1's All Bookings financial columns are corrected — they must show a computed figure (blending actual Room Revenue Breakdown nights with the query-time Estimated Remaining Night Rate for the rest, `FINANCIAL_LOGIC.md` §7a) as soon as a reservation's Booking/Arrival Report total is known, not only once Room Revenue Breakdown exists. §5 (Reconciliation) and §6 (Drill-down) are updated for the two new exception types (`ROOM_REVENUE_TOTAL_MISMATCH`, and `MANUAL_REVENUE_OVERRIDE_PENDING`'s extended meaning for Direct/Individual/Travel-Agent reservations) and for showing estimated vs. actual nights distinctly in the per-reservation breakdown.
 
 Defines the calculation and query shape behind every reporting page. All aggregation is server/database-side (indexed queries against `reservations` and `daily_revenue`), per the performance requirements — the browser never recomputes portfolio-wide totals from raw rows.
 
@@ -26,11 +28,11 @@ Columns (per the brief's explicit list, mapped to `DATA_MODEL.md` fields):
 | Nights | `reservations.nights` |
 | Channel | `reservations.channel_id` → `channels.display_name` |
 | Reservation Status | `reservations.status` (+ link to `reservation_status_history` for detail) |
-| Gross Revenue | `SUM(daily_revenue.commercial_revenue_basis_amount)` (`[RENAMED]` from `gross_revenue` — `DATA_MODEL.md` §2) for this reservation, or `reservations.final_gross_revenue` if no daily rows exist yet (pre-Room-Revenue-import state) |
-| Commission | `SUM(daily_revenue.commission)` |
-| VAT on Commission | `SUM(daily_revenue.commission_vat)` |
-| PB1 | `SUM(daily_revenue.pb1)` |
-| Net Revenue | `SUM(daily_revenue.net_revenue)` |
+| Gross Revenue | **`[CORRECTED — v0.6]`** `SUM` across every stay-date of: the actual `daily_revenue.commercial_revenue_basis_amount` where an actual Room Revenue Breakdown row exists, plus the query-time Estimated Remaining Night Rate for every stay-date that doesn't (`FINANCIAL_LOGIC.md` §7a) — never just `reservations.final_gross_revenue` shown flat, and never blank before Room Revenue Breakdown exists. Financial figures must be computable from the Booking/Arrival Report total immediately. |
+| Commission | Same actual-plus-estimated blend as Gross Revenue, `SUM(daily_revenue.commission)` for actual nights plus the computed commission on each estimated night's amount |
+| VAT on Commission | Same blend, for `commission_vat` |
+| PB1 | Same blend, for `pb1` |
+| Net Revenue | Same blend, for `net_revenue` |
 | Manual Revenue Adjustment | `revenue_overrides.manual_revenue` when present |
 | Final Net Revenue | net revenue recomputed using the approved override where one exists, else the standard net revenue |
 | Source | `reservations.portfolio` (AASHA / BALINEST) |
@@ -109,6 +111,10 @@ Surfaces `reconciliation_exceptions` (see `DATA_MODEL.md` §6) as an actionable 
 
 **`[NEW — confirmed rule]`** `MISSING_PAYMENT_RULE`, by contrast, is **blocking, not informational** (`DATA_MODEL.md` §8/§4): a reservation with this exception open has no resolved `channel_payment_rules` row, so its Expected Settlement/commission/VAT/PB1/Net Revenue are incomplete. Every report that aggregates these figures (All Bookings, Monthly Performance, Summary, Road to Target, Settlement Reconciliation) must exclude such a reservation from its finalized totals — or visibly flag the total as provisional — rather than silently including a guessed number. There is no default financial model to fall back on here.
 
+**`[NEW — v0.6]`** `ROOM_REVENUE_TOTAL_MISMATCH` (`FINANCIAL_LOGIC.md` §7a-A, `DATA_MODEL.md` §8): every stay-date for the reservation now has an actual Room Revenue Breakdown row, but they don't sum to the Booking/Arrival Report total. Informational for reporting purposes — the reservation's figures are still shown (using the actual per-night data), but the discrepancy itself must surface here for Jane to resolve; the authoritative total is never silently replaced by the actual sum.
+
+**`[NEW — v0.6]`** `MANUAL_REVENUE_OVERRIDE_PENDING` now also covers any Direct/Individual/Travel-Agent reservation with no *approved* override yet (`FINANCIAL_LOGIC.md` §7a-B) — its figures use the same temporary system-value estimate as an OTA booking (so it isn't blank), but the exception marks them as unconfirmed and worth reviewing, since the system-reported total for these channels isn't trusted by default.
+
 ## 6. Drill-down (applies to every revenue number, everywhere)
 
 Every displayed revenue figure — a Monthly Performance cell, a Summary total, an All Bookings row's Net Revenue — must be traceable to its constituent `daily_revenue` rows. The drill-down view for a given villa+date (or a given reservation) shows:
@@ -124,6 +130,8 @@ Every displayed revenue figure — a Monthly Performance cell, a Summary total, 
 - Net revenue
 
 This is a straightforward query against `daily_revenue` (joined to `reservations`/`channels`) filtered by the villa+date or reservation being inspected — it should not require a different code path than the aggregation queries above; it's the same source rows, just unaggregated. This directly satisfies "avoid black-box report numbers."
+
+**`[NEW — v0.6]`** A reservation-level drill-down must show **every** stay-date, not only the ones with an actual `daily_revenue` row — a stay-date without one yet is computed and shown using the query-time Estimated Remaining Night Rate (`FINANCIAL_LOGIC.md` §7a), visually distinguished from an actual night (consistent with Monthly Performance's and Road to Target's existing actual-vs-estimated treatment, `§2a`/`§8`), never presented as if it were confirmed.
 
 ## 7. Excel export
 

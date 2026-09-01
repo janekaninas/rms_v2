@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportKind, ImportPreview, ResolvedRow } from "./types";
+import { recomputeReservations } from "../financial/recompute";
 
 function computeNights(arrival: string | null, departure: string | null): number {
   if (!arrival || !departure) return 0;
@@ -75,12 +76,26 @@ export async function commitImport(
   if (importError) throw new Error(`Failed to record import summary: ${importError.message}`);
   const importId = importRow.id as string;
 
+  let affectedReservationIds: string[] = [];
   try {
-    await commitRows(supabase, importType, importId, toWrite, duplicatedInFile, byReservationNumber, errorRows);
+    affectedReservationIds = await commitRows(
+      supabase,
+      importType,
+      importId,
+      toWrite,
+      duplicatedInFile,
+      byReservationNumber,
+      errorRows,
+    );
   } catch (e) {
     await supabase.from("imports").update({ status: "FAILED" }).eq("id", importId);
     throw e;
   }
+
+  // FINANCIAL_LOGIC.md §7a: the Booking/Arrival Report total makes a
+  // reservation's financial figures computable immediately — this is
+  // not only a Room Revenue Breakdown concern.
+  await recomputeReservations(supabase, affectedReservationIds);
 
   await supabase.from("imports").update({ status: "COMMITTED" }).eq("id", importId);
 
@@ -95,7 +110,7 @@ async function commitRows(
   duplicatedInFile: string[],
   byReservationNumber: Map<string, ResolvedRow[]>,
   errorRows: ResolvedRow[],
-) {
+): Promise<string[]> {
   let upsertedIds = new Map<string, string>(); // reservation_number -> id
 
   if (importType !== "CANCELLATIONS") {
@@ -244,4 +259,6 @@ async function commitRows(
     const { error } = await supabase.from("import_row_errors").insert(errorPayload);
     if (error) throw new Error(`Failed to record row errors: ${error.message}`);
   }
+
+  return [...new Set(upsertedIds.values())];
 }

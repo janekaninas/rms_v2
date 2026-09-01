@@ -3,6 +3,8 @@
 > **Revision note (v0.4 — confirmed business rules):** Jane has now confirmed several rules that were previously `NEEDS CONFIRMATION`. This revision resolves them explicitly rather than leaving the earlier register untouched: the Bracha 21%-service-charge/PB1-exemption treatment is **retired** as current logic (kept only as a historical, effective-dated profile for reconciling old periods); PB1 is confirmed **not** withheld by any OTA; Expected Settlement is now calculated from a **payment model** (per channel, optionally overridden per villa) rather than from Net Revenue; the "0% commission" treatment for Agoda/Airbnb/Tiket.com/Trip.com/etc. is confirmed **intentional** (their PMS figure already excludes OTA commission); the Direct/TA manual-override even-split rule is confirmed as-is; and cancelled reservations are confirmed able to still carry recognized revenue (cancellation fees/no-shows). §10 below is the updated master register — resolved items are marked `[RESOLVED]` with the confirmed rule and kept for history/traceability, not deleted; new open items are added, not guessed at.
 >
 > **Revision note (v0.5 — final consistency pass):** Two more §10 items are now resolved: the Bracha legacy→standard **cutover date is confirmed as 2026-08-01**, and Bracha's Booking.com **commission rate is confirmed at 18%** — both are stated plainly wherever they appear below, with no remaining "working assumption"/"NEEDS CONFIRMATION" framing (§3/§6/§10). The Direct/TA manual-override daily allocation is likewise restated as fully settled, with no residual "open question" wording (§7). §10 item 16 (an unresolved `channel_payment_rules` lookup) is corrected: there is **no silent fallback** to an assumed model — it raises `MISSING_PAYMENT_RULE` and the affected calculation is incomplete/not final (§5/§10). The `daily_revenue.gross_revenue` field is renamed to `daily_revenue.commercial_revenue_basis_amount` throughout (`DATA_MODEL.md` §2) to stop implying the stored figure is always pre-deduction.
+>
+> **Revision note (v0.6 — confirmed nightly allocation regimes, corrects the Day-3 implementation):** Two prior drafts of the Day-3 financial engine treated every reservation's `daily_revenue` rows as authoritative the moment a Room Revenue Breakdown row existed, and computed nothing at all before one did. That was wrong on both counts. **§7a below is new** and states the two confirmed allocation regimes precisely: **OTA bookings** treat the Booking/Arrival Report total as the fixed authoritative reservation total from the moment it's known, allocate it evenly across nights as a query-time estimate, and progressively replace that estimate per night as actual Room Revenue Breakdown rows arrive — the total itself never changes because of Room Revenue Breakdown, and a final mismatch is flagged (`ROOM_REVENUE_TOTAL_MISMATCH`) rather than silently absorbed. **Direct/Individual/Travel-Agent bookings** do not trust system-reported figures by default (flagged for review via `MANUAL_REVENUE_OVERRIDE_PENDING` until Jane sets one); once a manual override is **APPROVED**, it is the authoritative total for both the reservation and its nightly even-split allocation, and Room Revenue Breakdown is ignored entirely for that reservation's financial calculation. This does not change any commission/VAT/PB1 formula from §1-§6 — only *which amount* is fed into those formulas per stay-date, and *when* a calculation is available.
 
 This is the most sensitive document in the set. Per `CLAUDE.md`, nothing here is to be changed without Jane's explicit approval — including further "fixes." Formulas transcribed from the legacy workbook are still cited by sheet/cell where relevant, so the historical behavior remains checkable even where it's no longer the live rule.
 
@@ -130,6 +132,62 @@ Daily allocation for an approved override = approved_manual_revenue / stay_night
 ```
 
 Reason: Direct/Travel Agent bookings use a flat agreed rate, not PriceLabs' dynamic nightly pricing, so an even split is the economically correct allocation — there is no "real" nightly variation being discarded, because none exists for these bookings. This applies going forward exactly as the legacy `ROOM REV!AT2` behavior already did.
+
+## 7a. `[NEW — v0.6, confirmed]` Two nightly-allocation regimes: OTA vs. Direct/Individual/Travel Agent
+
+`daily_revenue.commercial_revenue_basis_amount` is the input to every formula in §1–§6. Before this revision, the platform only had one way to arrive at that amount per stay-date: an actual imported Room Revenue Breakdown row, with nothing computed until one existed. Jane's confirmed correction is that **the source of truth for that amount, and how confidently it can be used before Room Revenue Breakdown exists, depends on the channel's type** (`channels.channel_type`) and whether an approved manual override exists — not on Room Revenue Breakdown alone.
+
+### A. OTA bookings (`channels.channel_type = OTA`)
+
+The Booking / Arrival Report **Total Revenue is the authoritative reservation total** the moment it's known (`reservations.system_gross_revenue`, or `final_gross_revenue` if a rare OTA override is ever approved — see the precedence rule in §7a-C). Commission/VAT/PB1/Net Revenue must be computable **immediately** from that total, before any Room Revenue Breakdown exists for the stay:
+
+```
+Before Room Revenue Breakdown exists:
+  Daily estimated allocation = Authoritative Reservation Total / Nights   (even split, every night)
+
+As Room Revenue Breakdown reveals actual nightly rates, night by night:
+  Remaining Revenue            = Authoritative Reservation Total − SUM(actual Room Revenue already known)
+  Estimated Remaining Night Rate = Remaining Revenue / (nights with no actual Room Revenue yet)
+```
+
+Every night with an actual imported Room Revenue Breakdown row uses that real figure. Every night without one uses the current Estimated Remaining Night Rate, recomputed each time a new actual night arrives (so the estimate for what's left always redistributes the true remainder, not a stale one). **Room Revenue Breakdown changes only the nightly allocation — it never changes the authoritative reservation total.** The estimated portion is a query-time-only figure, exactly like `ESTIMATED_BOOKED` in `DATA_MODEL.md` §9 — it is never written into `daily_revenue` as if it were an actual row, so it can never be mistaken for, or silently overwrite, a real one.
+
+**`ROOM_REVENUE_TOTAL_MISMATCH`** (new `reconciliation_exceptions` type, `DATA_MODEL.md` §8): once every night for a reservation has an actual Room Revenue Breakdown row (no nights left to estimate), compare `SUM(actual Room Revenue)` to the Authoritative Reservation Total. If they don't reconcile (beyond a small rounding tolerance), raise this exception — the authoritative total is **not** silently replaced by the actual sum; a human resolves the discrepancy.
+
+### B. Direct / Individual / Travel Agent bookings (`channels.channel_type` = `DIRECT` or `TRAVEL_AGENT`)
+
+The VHP Booking Total Revenue and Room Revenue Breakdown for these channels are **not trusted by default** — the confirmed brief is explicit that the system rate can simply be wrong for these booking types (flat off-system agreed rates, manual entry, etc.).
+
+**Without an approved manual override**: use the system-reported total the same way an OTA booking would (even-split estimate before Room Revenue Breakdown, progressive refinement as it arrives) so the reservation is still usable for interim reporting — but also raise `MANUAL_REVENUE_OVERRIDE_PENDING` (already defined in `DATA_MODEL.md` §8) so it's visibly flagged for review rather than treated as final.
+
+**With an approved manual override** (`revenue_overrides.status = APPROVED`) — confirmed, and matching §7's already-confirmed even-split rule:
+
+```
+Final Reservation Revenue = Approved Manual Revenue   (becomes the authoritative total for this reservation)
+Daily allocation          = Approved Manual Revenue / Total Stay Nights   (even split, every night)
+```
+
+**Room Revenue Breakdown must not override this allocation once an override is approved** — it is ignored entirely for that reservation's financial calculation (the import itself is still accepted/counted for audit purposes, it simply has no effect on this reservation's `daily_revenue`). `system_revenue`, `manual_revenue`, and `final_revenue` remain three distinct, separately-stored fields on `revenue_overrides` (unchanged from §7) precisely so this substitution stays auditable — nothing about the system's original figure is destroyed or blended away.
+
+**Worked example** (confirmed): Booking CSV total 1,000,000 for a 2-night stay; Room Revenue Breakdown separately reports 500,000/night (consistent with the total, but irrelevant once overridden); Jane approves a manual override of 2,600,000. Result: `system_revenue = 1,000,000`, `manual_revenue = 2,600,000`, `final_revenue = 2,600,000`, and the two nights are each allocated 1,300,000 — not 500,000.
+
+### C. Precedence, summarized
+
+```
+OTA:
+  Booking/Arrival Report Total  → authoritative reservation total (fixed)
+  Room Revenue Breakdown        → nightly allocation clarification only, never changes the total
+
+Direct / Individual / Travel Agent, no approved override:
+  System-reported total          → used temporarily (same even-split/progressive mechanics as OTA)
+  MANUAL_REVENUE_OVERRIDE_PENDING → raised, so it's visibly under review, not treated as final
+
+Direct / Individual / Travel Agent, approved override:
+  Manual Revenue  → authoritative reservation total (overrides system-reported total entirely)
+  Even split      → authoritative nightly allocation (overrides Room Revenue Breakdown entirely)
+```
+
+An approved manual override outranks both the Booking/Arrival Report system revenue and Room Revenue Breakdown, for any channel type — Direct/Individual/Travel Agent is simply the case where one is expected to be needed routinely, not a restriction on which reservations may have one.
 
 ## 8. Cancellation / no-show revenue `[NEW — resolves a gap the legacy workbook never modeled]`
 
