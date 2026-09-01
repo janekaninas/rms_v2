@@ -85,9 +85,10 @@ interface NavSection {
 }
 
 // Mirrors docs/PRODUCT_SPEC.md §5 — a conceptual map, not a page-creation
-// mandate. Only Configuration has hrefs (built this session); every other
-// item is a disabled roadmap placeholder, never a dead link, per CLAUDE.md
-// rule 9 ("don't build a page merely because there is a menu item").
+// mandate. An item only gets an href once its underlying page/data exists;
+// every other item is a disabled roadmap placeholder, never a dead link,
+// per CLAUDE.md rule 9 ("don't build a page merely because there is a menu
+// item").
 const NAV_SECTIONS: NavSection[] = [
   { label: "Overview", items: [{ label: "Dashboard", day: "Day 7", icon: LayoutDashboard }] },
   {
@@ -104,7 +105,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Reconciliation",
     items: [
       { label: "Booking Reconciliation", day: "Day 7", icon: ListChecks },
-      { label: "OTA Settlement", day: "Day 5", icon: Landmark },
+      { label: "OTA Settlement", href: "/reconciliation/ota-settlement", icon: Landmark },
       { label: "Bank Reconciliation", day: "Day 6", icon: Building2 },
     ],
   },
@@ -121,7 +122,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Data",
     items: [
       { label: "Daily Upload", href: "/data/upload", icon: Upload },
-      { label: "Settlement Upload", day: "Day 5", icon: CloudUpload },
+      { label: "Settlement Upload", href: "/data/settlement-upload", icon: CloudUpload },
       { label: "Bank Mutation Upload", day: "Day 6", icon: FileUp },
       { label: "Import History", href: "/data/import-history", icon: Clock },
     ],

@@ -5,6 +5,8 @@
 > **v0.8 (this revision — Booking Date correction):** §2's `booking_date` field description is corrected. It remains schema-nullable (Baseline/Arrival Report Snapshot and Balinest/Guesty genuinely have no creation-date source column to supply it), but for the New Bookings (VHP) import path it is required data — `Created Date` from that source file — and once stored, a later import/update for the same reservation must never overwrite a known `booking_date` with a null it doesn't itself carry. No schema/column change; this is an import-write-path correction (`IMPORT_LOGIC.md` §1/§11).
 >
 > **v0.9 (this revision — Villa/Mapping management controls, no schema change):** §1 adds Villa lifecycle controls (Deactivate/Reactivate/safe Remove — remove is refused, with a specific reason, whenever `reservations`/`daily_revenue`/`room_villa_mapping`/`channel_payment_rules`/`revenue_targets` still reference the villa). §2 adds Room/Villa Mapping CRUD (Add/Edit/Remove, with the existing `(portfolio, match_type, raw_value)` DB-unique constraint surfaced as a friendly duplicate error) and documents that every mapping change automatically re-resolves already-imported reservations from their already-stored `room_number`/`room_type` — no re-upload, no new column, reusing the exact `resolveVilla()`/`recomputeReservations()` logic already used at import time.
+>
+> **v0.10 (this revision — Day 5, OTA Settlement built):** §7's `ota_settlement_batches`/`ota_settlement_lines`/`settlement_reservation_allocations` tables are now migrated and live, exactly as specified, plus one addition not in this section's original list: `ota_settlement_import_configs` (one row per channel, holds the column mapping IMPORT_LOGIC.md §8 requires as configuration) — needed because no real Airbnb/Booking.com/Expedia export has been supplied to hardcode a per-channel parser against (§10 item 19, still open).
 
 Grain discipline (unchanged since v0.1): the reporting engine's finest grain is `Reservation × Villa × Stay Date`. Everything else — settlement, bank, expenses, owner finance — links back to that grain via foreign keys or allocation tables, never via free-text villa/owner/channel names repeated across financial tables.
 
@@ -362,6 +364,17 @@ Models "what the OTA itself says it paid," with many-to-many allocation to reser
 | allocated_amount | numeric | |
 | allocation_method | enum(`EXACT_MATCH`,`AMOUNT_MATCH`,`MANUAL`) | |
 | confirmed_by, confirmed_at | | required for anything short of an unambiguous exact match |
+
+### `[NEW — Day 5, not in this section's original table list]` `ota_settlement_import_configs`
+
+Required by `IMPORT_LOGIC.md` §8 point 1's own instruction that a settlement file's column mapping is configuration, not a hardcoded per-OTA parser — and made necessary in practice because no real Airbnb/Booking.com/Expedia export has been supplied to hardcode against (§10 item 19, still open). One row per channel, set once through the Settlement Upload UI after a real file is seen there.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | pk | |
+| channel_id | fk → channels.id, unique | one saved mapping per channel |
+| column_mapping | jsonb | `{ batchReference?, batchDate, lineType?, reservationReference, amount, description?, externalLineRef? }` → source column name |
+| notes | text | |
 
 ## 8. Booking-data reconciliation
 

@@ -111,6 +111,75 @@ export interface AppSetting {
   description: string | null;
 }
 
+export type SettlementLineType =
+  | "BOOKING_PAYOUT"
+  | "ADJUSTMENT"
+  | "REFUND"
+  | "CORRECTION"
+  | "FEE"
+  | "OTHER";
+export type SettlementMatchedStatus = "UNMATCHED" | "MATCHED" | "PARTIALLY_MATCHED";
+export type SettlementAllocationMethod = "EXACT_MATCH" | "AMOUNT_MATCH" | "MANUAL";
+export type SettlementBatchStatus = "PENDING" | "PARTIALLY_SETTLED" | "SETTLED" | "VARIANCE" | "NEEDS_REVIEW";
+
+export interface OtaSettlementBatch {
+  id: string;
+  channel_id: string;
+  source_import_id: string | null;
+  batch_reference: string | null;
+  batch_date: string;
+  gross_settlement_amount: number;
+  adjustment_amount: number;
+  net_settlement_amount: number;
+  currency: string;
+  status: SettlementBatchStatus;
+  notes: string | null;
+}
+
+export interface OtaSettlementLine {
+  id: string;
+  batch_id: string;
+  line_type: SettlementLineType;
+  raw_reservation_reference: string | null;
+  description: string | null;
+  amount: number;
+  matched_status: SettlementMatchedStatus;
+  external_line_ref: string | null;
+}
+
+export interface SettlementReservationAllocation {
+  id: string;
+  settlement_line_id: string;
+  reservation_id: string;
+  allocated_amount: number;
+  allocation_method: SettlementAllocationMethod;
+}
+
+/**
+ * IMPORT_LOGIC.md §8 pt.1: the settlement file column mapping is
+ * configuration, per channel — never a hardcoded per-OTA parser. Real
+ * Airbnb/Booking.com/Expedia export layouts have not been supplied
+ * (FINANCIAL_LOGIC.md §10 item 19, still open), so this mapping is set
+ * once per channel through the Settlement Upload UI after a real file is
+ * seen, not guessed from memory of "typical" OTA reports.
+ */
+export interface SettlementColumnMapping {
+  batchReference?: string;
+  batchDate: string;
+  lineType?: string;
+  reservationReference: string;
+  amount: string;
+  description?: string;
+  externalLineRef?: string;
+}
+
+export interface OtaSettlementImportConfig {
+  id: string;
+  channel_id: string;
+  column_mapping: SettlementColumnMapping;
+  notes: string | null;
+}
+
 // Confirmed cutover date for the Bracha legacy → standard tax profile
 // transition (CLAUDE.md rule 19, FINANCIAL_LOGIC.md §3). Not a magic
 // number invented here — it is the explicitly confirmed business rule.
