@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Sheet,
   SheetContent,
@@ -129,7 +130,18 @@ export function CellDrilldown({
                       <TableRow key={r.reservationId}>
                         <TableCell className="font-medium">{r.reservationNumber}</TableCell>
                         <TableCell>{r.guestName ?? "—"}</TableCell>
-                        <TableCell>{r.channelName ?? "—"}</TableCell>
+                        <TableCell>
+                          {r.channelName ?? "—"}
+                          {r.netRevenue === null && r.channelId ? (
+                            <Link
+                              href={`/configuration/channel-payment-rules?channel=${r.channelId}`}
+                              className="ml-2 text-xs text-amber-700 underline"
+                              title={`No channel payment rule resolves for ${r.channelName ?? "this channel"} — configure it`}
+                            >
+                              Fix
+                            </Link>
+                          ) : null}
+                        </TableCell>
                         <TableCell>{r.arrivalDate}</TableCell>
                         <TableCell>{r.departureDate}</TableCell>
                         <TableCell>{r.status}</TableCell>
@@ -154,6 +166,7 @@ export function CellDrilldown({
                             reservationId={r.reservationId}
                             reservationNumber={r.reservationNumber}
                             guestName={r.guestName}
+                            channelId={r.channelId}
                             channelName={r.channelName}
                             villaLabel={villaLabel}
                             arrivalDate={r.arrivalDate}

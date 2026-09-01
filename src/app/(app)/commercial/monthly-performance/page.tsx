@@ -201,6 +201,7 @@ export default async function MonthlyPerformancePage({
                       );
                     }
                     const rev = revenueByVilla.get(v.id)?.get(date);
+                    const missingRuleChannelNames = rev ? [...rev.missingRuleChannels.values()] : [];
                     return (
                       <TableCell key={v.id} className={`p-0 text-center ${borderClass}`}>
                         <CellDrilldown villaId={v.id} villaLabel={`${v.villa_code} — ${v.name}`} date={date}>
@@ -208,9 +209,25 @@ export default async function MonthlyPerformancePage({
                             type="button"
                             className="flex h-full w-full items-center justify-center px-1 py-1.5 text-xs hover:bg-sidebar-accent"
                           >
-                            {!rev || rev.incomplete ? (
-                              <span title="Missing booking total or unresolved channel payment rule" className="text-amber-700">
+                            {!rev || missingRuleChannelNames.length > 0 ? (
+                              // REPORTING_LOGIC.md §2a: "Incomplete" is reserved for a
+                              // genuinely unresolvable channel payment rule — name the
+                              // channel(s) so the fix is obvious; open the drill-down
+                              // (this cell's own click target) for a direct link to
+                              // Configuration → Channel Payment Rules per reservation.
+                              <span
+                                title={
+                                  missingRuleChannelNames.length > 0
+                                    ? `Missing channel payment rule: ${missingRuleChannelNames.join(", ")} — open this cell to fix`
+                                    : "Missing booking total or unresolved channel payment rule"
+                                }
+                                className="text-amber-700"
+                              >
                                 Incomplete
+                              </span>
+                            ) : rev.missingTotal ? (
+                              <span title="No booking total yet for this reservation — not a channel payment rule problem" className="text-muted-foreground">
+                                No total
                               </span>
                             ) : (
                               <span

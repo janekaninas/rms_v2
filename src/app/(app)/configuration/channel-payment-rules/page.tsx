@@ -20,7 +20,12 @@ function formatPct(v: number | null) {
   return `${(v * 100).toFixed(2)}%`;
 }
 
-export default async function ChannelPaymentRulesPage() {
+export default async function ChannelPaymentRulesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ channel?: string }>;
+}) {
+  const { channel: preselectChannelId } = await searchParams;
   const supabase = await createClient();
 
   const [rules, typedChannels, typedVillas, typedGroups] = await Promise.all([
@@ -41,7 +46,12 @@ export default async function ChannelPaymentRulesPage() {
           eyebrow="Configuration"
           title="Channel Payment Rules"
           actions={
-            <RuleFormDialog channels={typedChannels} villas={typedVillas} villaGroups={typedGroups} />
+            <RuleFormDialog
+              channels={typedChannels}
+              villas={typedVillas}
+              villaGroups={typedGroups}
+              defaultChannelId={preselectChannelId}
+            />
           }
         />
 

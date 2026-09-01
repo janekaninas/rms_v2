@@ -14,8 +14,22 @@ export interface CellRevenue {
   netRevenue: number;
   /** Every contributing reservation-night is an actual Room Revenue row. */
   allActual: boolean;
-  /** No channel payment rule (or no booking total at all) for at least one contributing reservation — excluded from netRevenue, surfaced as "Incomplete". */
-  incomplete: boolean;
+  /**
+   * At least one contributing reservation has no booking total at all — a
+   * data/import problem, informational only. Distinct from
+   * missingRuleChannels below: allocateReservationNights() computes a real
+   * (if degenerate) netRevenue for a no-total-but-resolved-rule night, so
+   * this never excludes anything from the netRevenue sum on its own.
+   */
+  missingTotal: boolean;
+  /**
+   * channelId -> channel display name, for every distinct channel with an
+   * open MISSING_PAYMENT_RULE (no channel_payment_rules row resolves) among
+   * this cell's contributing reservation-nights — the genuinely fixable
+   * case, unlike missingTotal above. Non-empty size is what actually
+   * excludes a night's amount from netRevenue (night.netRevenue === null).
+   */
+  missingRuleChannels: Map<string, string>;
 }
 
 export interface MonthlyPerformanceData {
@@ -47,15 +61,21 @@ export async function loadMonthlyPerformanceData(
   const { aasha, balinest } = await getVillasForPeriod(supabase, range);
   const villaIds = [...aasha, ...balinest].map((v) => v.id);
 
-  const { data: reservationRows } = villaIds.length
-    ? await supabase
-        .from("reservations")
-        .select("id, villa_id, channel_id, arrival_date, departure_date, status, system_gross_revenue, final_gross_revenue")
-        .in("villa_id", villaIds)
-        .lt("arrival_date", range.endExclusive)
-        .gt("departure_date", range.start)
-    : { data: [] };
+  const [{ data: reservationRows }, { data: channelRows }] = await Promise.all([
+    villaIds.length
+      ? supabase
+          .from("reservations")
+          .select("id, villa_id, channel_id, arrival_date, departure_date, status, system_gross_revenue, final_gross_revenue")
+          .in("villa_id", villaIds)
+          .lt("arrival_date", range.endExclusive)
+          .gt("departure_date", range.start)
+      : Promise.resolve({ data: [] }),
+    // Small, portfolio-wide table — one fetch, not scoped per reservation,
+    // so an "Incomplete" cell can always name its channel(s).
+    supabase.from("channels").select("id, display_name"),
+  ]);
   const allReservations = reservationRows ?? [];
+  const channelNameById = new Map((channelRows ?? []).map((c) => [c.id as string, c.display_name as string]));
 
   const occupancyByVilla = computeOccupancyByVillaDate(allReservations as OccupancyReservation[], dates);
 
@@ -114,11 +134,18 @@ export async function loadMonthlyPerformanceData(
         pb1: 0,
         netRevenue: 0,
         allActual: true,
-        incomplete: authoritativeTotal === null,
+        missingTotal: false,
+        missingRuleChannels: new Map<string, string>(),
       };
       existing.commercialRevenue += night.amount;
       if (night.netRevenue === null) {
-        existing.incomplete = true;
+        // The genuine MISSING_PAYMENT_RULE case (or an unresolved channel/
+        // villa) — not the same as "no booking total" (FINANCIAL_LOGIC.md
+        // §7a-D): allocateReservationNights() still computes a real
+        // netRevenue for a no-total-but-resolved-rule night.
+        if (r.channel_id) {
+          existing.missingRuleChannels.set(r.channel_id, channelNameById.get(r.channel_id) ?? "Unknown channel");
+        }
       } else {
         existing.commission += night.commission ?? 0;
         existing.commissionVat += night.commissionVat ?? 0;
@@ -127,7 +154,7 @@ export async function loadMonthlyPerformanceData(
         existing.netRevenue += night.netRevenue;
       }
       if (!night.isActual) existing.allActual = false;
-      if (authoritativeTotal === null) existing.incomplete = true;
+      if (authoritativeTotal === null) existing.missingTotal = true;
       dateMap.set(night.stayDate, existing);
     }
   }
@@ -157,7 +184,7 @@ export function rollupVilla(villa: Villa, data: MonthlyPerformanceData): VillaMo
     const rev = revDates?.get(date);
     if (rev) {
       monthlyNetRevenue += rev.netRevenue;
-      if (rev.incomplete) incompleteCount++;
+      if (rev.missingRuleChannels.size > 0) incompleteCount++;
     }
   }
   const managedDays = managedDaysInMonth(villa, data.range);

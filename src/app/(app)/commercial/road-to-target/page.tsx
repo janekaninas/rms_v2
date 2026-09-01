@@ -54,7 +54,7 @@ function PortfolioStats({ row }: { row: RoadToTargetRow }) {
   return (
     <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
       <StatCard label="Portfolio Target" value={fmtOrDash(row.target)} />
-      <StatCard label="Currently Booked" value={fmtNumber(row.currentlyBookedRevenue)} warn={row.hasExcludedReservations} />
+      <StatCard label="Currently Booked" value={fmtNumber(row.currentlyBookedRevenue)} warn={row.excludedChannels.length > 0} />
       <StatCard label="Achievement" value={fmtPct(row.achievementPct)} />
       <StatCard label="Gap to Target" value={fmtGap(row.gap)} />
       <StatCard
@@ -96,10 +96,24 @@ export default async function RoadToTargetPage({
           . Figures below stay blank rather than a guessed or carried-forward target.
         </div>
       ) : null}
-      {data.portfolio.hasExcludedReservations ? (
+      {data.portfolio.excludedChannels.length > 0 ? (
         <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          One or more reservations this month have an open MISSING_PAYMENT_RULE exception — their nights are excluded
-          from Currently Booked Revenue until a channel payment rule is configured.
+          <p className="mb-2">
+            {data.portfolio.excludedChannels.length === 1 ? "A channel has" : "These channels have"} an open
+            MISSING_PAYMENT_RULE exception this month — their reservations&apos; nights are excluded from Currently
+            Booked Revenue until a payment rule is configured:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {data.portfolio.excludedChannels.map((c) => (
+              <Link
+                key={c.id}
+                href={`/configuration/channel-payment-rules?channel=${c.id}`}
+                className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              >
+                {c.name} — Configure
+              </Link>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -138,8 +152,11 @@ export default async function RoadToTargetPage({
                   <TableCell className="text-right">{fmtOrDash(row.target)}</TableCell>
                   <TableCell className="text-right">
                     {fmtNumber(row.currentlyBookedRevenue)}
-                    {row.hasExcludedReservations ? (
-                      <span title="Some nights excluded — MISSING_PAYMENT_RULE" className="ml-1 text-amber-700">
+                    {row.excludedChannels.length > 0 ? (
+                      <span
+                        title={`Some nights excluded — MISSING_PAYMENT_RULE: ${row.excludedChannels.map((c) => c.name).join(", ")}`}
+                        className="ml-1 text-amber-700"
+                      >
                         *
                       </span>
                     ) : null}

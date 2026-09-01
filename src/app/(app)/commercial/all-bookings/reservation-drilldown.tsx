@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Sheet,
   SheetContent,
@@ -44,6 +45,7 @@ export function ReservationDrilldown({
   reservationId,
   reservationNumber,
   guestName,
+  channelId,
   channelName,
   villaLabel,
   arrivalDate,
@@ -56,6 +58,8 @@ export function ReservationDrilldown({
   reservationId: string;
   reservationNumber: string;
   guestName: string | null;
+  /** For the MISSING_PAYMENT_RULE "fix this" link — null only when the channel itself is unresolved (UNKNOWN_CHANNEL), a different exception with a different fix (Villa Mapping/Channel config, not a payment rule). */
+  channelId: string | null;
   channelName: string | null;
   villaLabel: string | null;
   arrivalDate: string;
@@ -114,10 +118,19 @@ export function ReservationDrilldown({
 
           <div className="space-y-6 px-4 pt-4">
             {incomplete ? (
-              <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 print:hidden">
-                No channel payment rule resolves for this reservation — figures below are
-                incomplete, not final (MISSING_PAYMENT_RULE).
-              </p>
+              <div className="flex items-center justify-between gap-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 print:hidden">
+                <span>
+                  No channel payment rule resolves for <strong>{channelName ?? "this channel"}</strong> on this
+                  reservation — figures below are incomplete, not final (MISSING_PAYMENT_RULE).
+                </span>
+                {channelId ? (
+                  <Button asChild variant="outline" size="sm" className="shrink-0 border-amber-300 bg-white text-amber-800 hover:bg-amber-100">
+                    <Link href={`/configuration/channel-payment-rules?channel=${channelId}`}>
+                      Configure {channelName ?? "channel"}
+                    </Link>
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
 
             <div className="overflow-x-auto rounded-md border">

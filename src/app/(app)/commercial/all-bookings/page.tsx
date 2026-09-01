@@ -249,6 +249,7 @@ export default async function AllBookingsPage({
                         reservationId={r.id}
                         reservationNumber={r.reservation_number}
                         guestName={r.guest_name}
+                        channelId={r.channel_id}
                         channelName={r.channels?.display_name ?? null}
                         villaLabel={r.villas ? `${r.villas.villa_code} — ${r.villas.name}` : null}
                         arrivalDate={r.arrival_date}

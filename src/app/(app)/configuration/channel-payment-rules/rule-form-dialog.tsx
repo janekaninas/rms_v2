@@ -27,12 +27,15 @@ export function RuleFormDialog({
   channels,
   villas,
   villaGroups,
+  defaultChannelId,
 }: {
   channels: Channel[];
   villas: Villa[];
   villaGroups: VillaGroup[];
+  /** From a MISSING_PAYMENT_RULE "fix this" link (?channel=<id>) — preselects the channel and opens the dialog immediately, so the fix is one click away rather than landing on the list page. */
+  defaultChannelId?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!defaultChannelId);
   const [scope, setScope] = useState<"default" | "villa" | "villa_group">("default");
 
   async function action(formData: FormData) {
@@ -53,7 +56,7 @@ export function RuleFormDialog({
         <form action={action} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="channel_id">Channel</Label>
-            <Select name="channel_id" required>
+            <Select name="channel_id" required defaultValue={defaultChannelId}>
               <SelectTrigger id="channel_id" className="w-full">
                 <SelectValue placeholder="Select a channel" />
               </SelectTrigger>

@@ -9,7 +9,8 @@ export interface RoadToTargetRow {
   villa: Villa | null; // null = portfolio level
   target: number | null;
   currentlyBookedRevenue: number;
-  hasExcludedReservations: boolean;
+  /** Channels with an open MISSING_PAYMENT_RULE excluding at least one night from currentlyBookedRevenue in this scope — each fixable via Configuration → Channel Payment Rules. */
+  excludedChannels: { id: string; name: string }[];
   achievementPct: number | null;
   gap: number | null;
   remainingDays: number;
@@ -42,10 +43,14 @@ export async function loadRoadToTargetData(
   const remainingDates = dates.filter((d) => d >= todayStr);
   const remainingDays = remainingDates.length;
 
-  const { data: villaRowsRaw, error: villaErr } = await supabase.from("villas").select("*").order("villa_code");
+  const [{ data: villaRowsRaw, error: villaErr }, { data: channelRows }] = await Promise.all([
+    supabase.from("villas").select("*").order("villa_code"),
+    supabase.from("channels").select("id, display_name"),
+  ]);
   if (villaErr) throw new Error(villaErr.message);
   const villas = (villaRowsRaw ?? []) as Villa[];
   const villaIds = villas.map((v) => v.id);
+  const channelNameById = new Map((channelRows ?? []).map((c) => [c.id as string, c.display_name as string]));
 
   const { data: targetRows, error: targetErr } = await supabase
     .from("revenue_targets")
@@ -92,7 +97,7 @@ export async function loadRoadToTargetData(
     actualByReservation.set(row.reservation_id as string, list);
   }
 
-  const bookedByVilla = new Map<string, { revenue: number; excluded: boolean }>();
+  const bookedByVilla = new Map<string, { revenue: number; excludedChannels: Map<string, string> }>();
   for (const r of resList) {
     if (!r.villa_id) continue;
     const authoritativeTotal = r.final_gross_revenue ?? r.system_gross_revenue ?? null;
@@ -108,11 +113,13 @@ export async function loadRoadToTargetData(
       assignments: allocationContext.assignments,
       profiles: allocationContext.profiles,
     });
-    const entry = bookedByVilla.get(r.villa_id) ?? { revenue: 0, excluded: false };
+    const entry = bookedByVilla.get(r.villa_id) ?? { revenue: 0, excludedChannels: new Map<string, string>() };
     for (const night of allocation.nights) {
       if (night.stayDate < range.start || night.stayDate > range.endInclusive) continue;
       if (night.netRevenue === null) {
-        entry.excluded = true;
+        if (r.channel_id) {
+          entry.excludedChannels.set(r.channel_id, channelNameById.get(r.channel_id) ?? "Unknown channel");
+        }
       } else {
         entry.revenue += night.netRevenue;
       }
@@ -124,14 +131,15 @@ export async function loadRoadToTargetData(
 
   function computeRow(villa: Villa | null, unitCount: number, target: number | null, villaIdsInScope: string[]): RoadToTargetRow {
     let currentlyBookedRevenue = 0;
-    let hasExcludedReservations = false;
+    const excludedChannelsMap = new Map<string, string>();
     for (const vid of villaIdsInScope) {
       const b = bookedByVilla.get(vid);
       if (b) {
         currentlyBookedRevenue += b.revenue;
-        if (b.excluded) hasExcludedReservations = true;
+        for (const [id, name] of b.excludedChannels) excludedChannelsMap.set(id, name);
       }
     }
+    const excludedChannels = [...excludedChannelsMap.entries()].map(([id, name]) => ({ id, name }));
 
     let alreadyBookedRemaining = 0;
     for (const vid of villaIdsInScope) {
@@ -150,7 +158,7 @@ export async function loadRoadToTargetData(
       villa,
       target,
       currentlyBookedRevenue,
-      hasExcludedReservations,
+      excludedChannels,
       achievementPct,
       gap,
       remainingDays,

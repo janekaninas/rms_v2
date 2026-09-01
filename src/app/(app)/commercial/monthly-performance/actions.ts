@@ -8,6 +8,8 @@ export interface CellDrilldownRow {
   reservationId: string;
   reservationNumber: string;
   guestName: string | null;
+  /** For the MISSING_PAYMENT_RULE "fix this" link. */
+  channelId: string | null;
   channelName: string | null;
   arrivalDate: string;
   departureDate: string;
@@ -122,6 +124,7 @@ export async function getCellDrilldown(villaId: string, date: string): Promise<C
       reservationId: r.id,
       reservationNumber: r.reservation_number,
       guestName: r.guest_name,
+      channelId: r.channel_id,
       channelName,
       arrivalDate: r.arrival_date,
       departureDate: r.departure_date,
