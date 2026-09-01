@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -171,10 +172,14 @@ export function AppSidebar() {
         )}
       >
         {!collapsed && (
-          <div>
-            <p className="text-sm font-semibold text-sidebar-foreground">AASHA</p>
-            <p className="text-xs text-muted-foreground">Villa Management</p>
-          </div>
+          <Image
+            src="/aasha-logo-wordmark.png"
+            alt="Aasha Management"
+            width={196}
+            height={20}
+            priority
+            className="h-5 w-auto"
+          />
         )}
         <button
           type="button"

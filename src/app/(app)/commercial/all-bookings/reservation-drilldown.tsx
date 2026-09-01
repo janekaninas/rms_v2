@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import {
   Sheet,
   SheetContent,
@@ -82,6 +83,13 @@ export function ReservationDrilldown({
       >
         <div id="reservation-print-area">
           <SheetHeader className="gap-3 border-b pb-4">
+            <Image
+              src="/aasha-logo-wordmark.png"
+              alt="Aasha Management"
+              width={160}
+              height={16}
+              className="h-4 w-auto self-start"
+            />
             <div className="flex items-center justify-between">
               <SheetTitle>Reservation {reservationNumber}</SheetTitle>
               <Button

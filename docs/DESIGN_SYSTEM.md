@@ -105,6 +105,14 @@ Added for the Day-7 settlement/bank reconciliation pages; everything else in thi
 - **Reservation detail panel** (the `Sheet` drill-down, §7 above): significantly wider than a typical form drawer — `sm:max-w-4xl`, not `sm:max-w-sm`/`2xl` — so the nightly financial breakdown table (8 columns) is fully visible without horizontal scrolling inside the panel. The header leads with a compact, OTA-style booking summary grid (Reservation #, Guest, Channel, Villa, Arrival, Departure, Status), not just the reservation number, with the nightly breakdown below it and the Manual Revenue Override section preserved beneath that (`REPORTING_LOGIC.md` §6).
 - **Print**: a Print action in the panel header produces a standalone view of the booking summary + nightly breakdown only (no manual-override form, no app chrome/sidebar/overlay) — suitable to hand to a guest or keep as a reservation financial record. Implemented via a scoped `@media print` rule (a `visibility: hidden` on everything, `visibility: visible` + `position: fixed` on the printable region) rather than a new page/route or an added PDF-generation dependency — do not add a PDF library for this; the browser's own print-to-PDF covers the "printable/PDF" requirement.
 
+## 9b. `[NEW]` AASHA wordmark
+
+Jane supplied the real brand mark (`public/aasha-logo-wordmark.png` — a tightly-cropped, transparent-background horizontal wordmark; `public/aasha-logo-mark.png` — the full icon+wordmark lockup on a white background, better suited to a square/stacked placement than a header bar) in place of the plain-text "AASHA / Villa Management" placeholder used until now.
+
+- **Sidebar header**: the wordmark replaces the two-line text block in the expanded state (§3a) — collapsed state still shows no branding mark, just the toggle control, since the lockup's proportions don't crop cleanly to an icon-only rail without further asset work.
+- **Reservation print record** (§9a): the wordmark appears at the top of the drill-down panel, inside `#reservation-print-area` (so it prints as a letterhead), above the booking-summary grid.
+- Rendered via `next/image` with explicit `width`/`height` and `className="h-* w-auto"` to preserve aspect ratio — inside a flex-column container (`SheetHeader` uses `flex flex-col`, which stretches children to the cross-axis width by default), pair this with `self-start` or the image silently stretches to fill the header's full width. Watch for this same trap anywhere else the wordmark is placed inside a column flex container.
+
 ## 10. What "premium but understated" means here, concretely
 
 The reference achieves this almost entirely through restraint: one accent color used sparingly, thin borders instead of shadows for separation, no decorative gradients or icons-as-illustration, and dense-but-aligned spacing. Replicate that restraint rather than any specific visual flourish from the reference.
