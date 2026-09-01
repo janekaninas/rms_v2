@@ -16,7 +16,7 @@ function normalizeForMatch(s: string): string {
   return s.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
-interface MappingLookup {
+export interface MappingLookup {
   match_type: "ROOM_NUMBER" | "ROOM_TYPE" | "LISTING";
   raw_value: string;
   villa_id: string;
@@ -59,7 +59,13 @@ function resolveChannel(
   return { channelId: null, unknown: true };
 }
 
-function resolveVilla(
+/**
+ * Exported for reuse by src/lib/import/reresolve-villas.ts: a Villa Mapping
+ * change must re-resolve already-imported reservations from their stored
+ * raw room_number/room_type using this exact same matching logic — never a
+ * second, drifting implementation (IMPORT_LOGIC.md §6).
+ */
+export function resolveVilla(
   roomNumber: string | null,
   roomType: string | null,
   mappings: MappingLookup[],

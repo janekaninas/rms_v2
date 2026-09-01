@@ -21,11 +21,6 @@ const VILLA_COL_WIDTH = 84;
 // this being exact so row 2 can stick at precisely row 1's height rather
 // than an estimate. If TableHead's height class ever changes, update this.
 const HEADER_ROW_HEIGHT = 40;
-// Footer rows get an explicit height (TableCell has no fixed height by
-// default) for the same reason: sticky-bottom stacking needs to know each
-// row's exact height to compute the next row's offset.
-const FOOTER_ROW_HEIGHT = 32;
-const FOOTER_ROWS = 4;
 
 function fmtNumber(v: number) {
   return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -57,17 +52,20 @@ export default async function MonthlyPerformancePage({
   const { aasha, balinest, dates, occupancyByVilla, revenueByVilla } = data;
   const orderedVillas = [...aasha, ...balinest];
 
-  const footerRows = (
-    [
-      { label: "Room Nights Sold", render: (r: VillaMonthlyRollup) => fmtNumber(r.roomNightsSold) },
-      {
-        label: "Occupancy %",
-        render: (r: VillaMonthlyRollup) => (r.occupancyPct === null ? "—" : `${(r.occupancyPct * 100).toFixed(0)}%`),
-      },
-      { label: "ARR", render: (r: VillaMonthlyRollup) => (r.arr === null ? "—" : fmtNumber(r.arr)) },
-      { label: "Net Revenue", render: (r: VillaMonthlyRollup) => fmtNumber(r.monthlyNetRevenue) },
-    ] as const
-  ).map((row, i) => ({ ...row, bottomOffset: (FOOTER_ROWS - 1 - i) * FOOTER_ROW_HEIGHT }));
+  const footerRows = [
+    { label: "Room Nights Sold", render: (r: VillaMonthlyRollup) => fmtNumber(r.roomNightsSold) },
+    {
+      label: "Occupancy %",
+      render: (r: VillaMonthlyRollup) => (r.occupancyPct === null ? "—" : `${(r.occupancyPct * 100).toFixed(0)}%`),
+    },
+    { label: "ARR", render: (r: VillaMonthlyRollup) => (r.arr === null ? "—" : fmtNumber(r.arr)) },
+    { label: "Net Revenue", render: (r: VillaMonthlyRollup) => fmtNumber(r.monthlyNetRevenue) },
+  ] as const;
+
+  // Computed once per villa (not once per footer-row-per-villa — the four
+  // footer rows all read the same rollup) so a 30+ villa month doesn't redo
+  // a full date-range aggregation 4x per column.
+  const villaRollups = new Map(orderedVillas.map((v) => [v.id, rollupVilla(v, data)]));
 
   return (
     // DESIGN_SYSTEM.md §3b: a self-contained, independently-scrolling report
@@ -245,22 +243,36 @@ export default async function MonthlyPerformancePage({
                 </TableRow>
               ))}
             </TableBody>
+            {/*
+              DESIGN_SYSTEM.md §3b (revised): a sticky-bottom footer was
+              tried first, but position:sticky on rows this close to the end
+              of a scrollable body has no way to reserve space for itself —
+              while scrolling, the "stuck" footer visually sits on top of
+              the last daily rows scrolling underneath it, which reads as
+              broken/overlapping. Per the explicit fallback ("prefer a clean
+              non-sticky footer over a broken sticky one"), these rows are
+              now plain in-flow rows: only left-stickiness is kept on the
+              Date cell, matching the body's Date column so the label stays
+              aligned during horizontal scroll. TableFooter's own default
+              classes (border-t bg-muted/50) supply the top border.
+            */}
             <TableFooter>
               {footerRows.map((row) => (
                 <TableRow key={row.label} className="bg-muted/40 font-medium hover:bg-muted/40">
                   <TableCell
-                    style={dateColStyle({ bottom: row.bottomOffset, zIndex: 30 })}
-                    className="h-8 bg-muted/40 py-0"
+                    style={dateColStyle({ zIndex: 10 })}
+                    title={row.label}
+                    className="h-8 truncate overflow-hidden bg-muted/40 px-1.5 py-0 text-[10px]"
                   >
                     {row.label}
                   </TableCell>
                   {orderedVillas.map((v, i) => {
-                    const r = rollupVilla(v, data);
+                    const r = villaRollups.get(v.id)!;
                     const borderClass = i === 0 || i === aasha.length ? "border-l" : "";
                     return (
                       <TableCell
                         key={v.id}
-                        style={{ position: "sticky", bottom: row.bottomOffset, zIndex: 20 }}
+                        style={{ width: VILLA_COL_WIDTH, minWidth: VILLA_COL_WIDTH, maxWidth: VILLA_COL_WIDTH }}
                         className={`h-8 bg-muted/40 py-0 text-center text-xs ${borderClass}`}
                       >
                         {row.render(r)}

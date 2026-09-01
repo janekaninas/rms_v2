@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import type { Owner, Villa, VillaGroup } from "@/lib/types";
 import { VillaFormDialog } from "./villa-form-dialog";
+import { VillaRowActions } from "./villa-row-actions";
 
 export default async function VillasPage() {
   const supabase = await createClient();
@@ -60,7 +61,7 @@ export default async function VillasPage() {
               <TableHead>Managed From</TableHead>
               <TableHead>Managed To</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="w-10" />
+              <TableHead className="w-48" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -95,16 +96,19 @@ export default async function VillasPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <VillaFormDialog
-                      villa={v as unknown as Villa}
-                      owners={typedOwners}
-                      villaGroups={typedGroups}
-                      trigger={
-                        <Button variant="outline" size="sm">
-                          Edit
-                        </Button>
-                      }
-                    />
+                    <div className="flex justify-end gap-2">
+                      <VillaFormDialog
+                        villa={v as unknown as Villa}
+                        owners={typedOwners}
+                        villaGroups={typedGroups}
+                        trigger={
+                          <Button variant="outline" size="sm">
+                            Edit
+                          </Button>
+                        }
+                      />
+                      <VillaRowActions villaId={v.id} active={v.active} />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

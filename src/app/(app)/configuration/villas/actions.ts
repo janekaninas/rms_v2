@@ -113,6 +113,56 @@ export async function createVilla(formData: FormData) {
   revalidatePath("/configuration/villas");
 }
 
+// CLAUDE.md rule 8: `active` is a current-config filter only, never a
+// historical-reporting one — toggling it never changes villa_id
+// resolution or any stored figure, only which villas current-config
+// surfaces (dropdowns, this page's default list) offer going forward.
+// Still worth a dedicated one-click action rather than only the buried
+// Switch inside the full Edit form.
+export async function toggleVillaActive(villaId: string, nextActive: boolean) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("villas").update({ active: nextActive }).eq("id", villaId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/configuration/villas");
+  revalidatePath("/configuration/villa-mapping");
+  revalidatePath("/configuration/channel-payment-rules");
+  revalidatePath("/configuration/revenue-targets");
+}
+
+// CLAUDE.md rule 15 / DATA_MODEL.md §1: never hard-delete a villa that
+// real ledger or config data depends on — deactivate instead, so
+// historical reporting is preserved. A villa is only actually removable
+// when nothing references it yet (e.g. created by mistake, never used).
+export async function deleteVillaIfSafe(villaId: string) {
+  const supabase = await createClient();
+
+  const [reservations, dailyRevenue, mappings, paymentRules, targets] = await Promise.all([
+    supabase.from("reservations").select("id", { count: "exact", head: true }).eq("villa_id", villaId),
+    supabase.from("daily_revenue").select("id", { count: "exact", head: true }).eq("villa_id", villaId),
+    supabase.from("room_villa_mapping").select("id", { count: "exact", head: true }).eq("villa_id", villaId),
+    supabase.from("channel_payment_rules").select("id", { count: "exact", head: true }).eq("villa_id", villaId),
+    supabase.from("revenue_targets").select("id", { count: "exact", head: true }).eq("villa_id", villaId),
+  ]);
+
+  const blockers: string[] = [];
+  if ((reservations.count ?? 0) > 0) blockers.push(`${reservations.count} reservation(s)`);
+  if ((dailyRevenue.count ?? 0) > 0) blockers.push(`${dailyRevenue.count} daily revenue row(s)`);
+  if ((mappings.count ?? 0) > 0) blockers.push(`${mappings.count} room mapping(s)`);
+  if ((paymentRules.count ?? 0) > 0) blockers.push(`${paymentRules.count} channel payment rule(s)`);
+  if ((targets.count ?? 0) > 0) blockers.push(`${targets.count} revenue target(s)`);
+
+  if (blockers.length > 0) {
+    throw new Error(
+      `Cannot remove this villa — it's referenced by ${blockers.join(", ")}. Deactivate it instead to preserve historical reporting.`,
+    );
+  }
+
+  const { error } = await supabase.from("villas").delete().eq("id", villaId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/configuration/villas");
+}
+
 export async function updateVilla(villaId: string, formData: FormData) {
   const supabase = await createClient();
 

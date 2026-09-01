@@ -34,14 +34,23 @@ function fmtArr(v: number | null) {
 export default async function SummaryPage() {
   const supabase = await createClient();
   const today = new Date();
-  const year = today.getUTCFullYear();
-  const startMonth = today.getUTCMonth() + 1;
+  const currentYear = today.getUTCFullYear();
+  const currentMonth = today.getUTCMonth() + 1;
 
-  const months = [];
-  for (let m = startMonth; m <= 12; m++) months.push(m);
+  // Range is January of the current calendar year through 12 months ahead
+  // of the current month — dynamic, recomputed from `today` on every
+  // request, never hardcoded to a specific year. Worked example: today =
+  // September 2026 → Jan 2026 through Sep 2027 (not "current month through
+  // December", which hid Jan–Aug entirely).
+  const startIdx = currentYear * 12; // January of currentYear, 0-based
+  const endIdx = currentYear * 12 + (currentMonth - 1) + 12;
+  const periods: { year: number; month: number }[] = [];
+  for (let idx = startIdx; idx <= endIdx; idx++) {
+    periods.push({ year: Math.floor(idx / 12), month: (idx % 12) + 1 });
+  }
 
   const rows = await Promise.all(
-    months.map(async (month) => {
+    periods.map(async ({ year, month }) => {
       const data = await loadMonthlyPerformanceData(supabase, year, month);
       const aashaRollups = data.aasha.map((v) => rollupVilla(v, data));
       const balinestRollups = data.balinest.map((v) => rollupVilla(v, data));
@@ -116,9 +125,11 @@ export default async function SummaryPage() {
       </div>
 
       <p className="mt-3 text-xs text-muted-foreground">
-        {monthLabel(year, startMonth)} through December {year}. A villa with an open MISSING_PAYMENT_RULE exception on
-        any date this month has that date excluded from its Revenue/ARR figures here — see Monthly Performance for
-        which dates are affected.
+        {monthLabel(periods[0].year, periods[0].month)} through{" "}
+        {monthLabel(periods[periods.length - 1].year, periods[periods.length - 1].month)} — January of the current
+        year through 12 months ahead, recalculated from today&apos;s date. A villa with an open MISSING_PAYMENT_RULE
+        exception on any date in a month has that date excluded from its Revenue/ARR figures here — see Monthly
+        Performance for which dates are affected.
       </p>
     </div>
   );

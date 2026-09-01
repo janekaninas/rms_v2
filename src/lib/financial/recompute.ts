@@ -257,8 +257,14 @@ export async function recomputeReservations(supabase: SupabaseClient, reservatio
   await syncMismatchExceptions(supabase, mismatchIds, mismatchResolvedIds);
 }
 
-/** Opens an exception (deduped against any already-open one) for each id in `toOpen`, and resolves any open one for each id in `toResolve`. */
-async function syncExceptions(
+/**
+ * Opens an exception (deduped against any already-open one) for each id in
+ * `toOpen`, and resolves any open one for each id in `toResolve`. Exported
+ * for reuse by src/lib/import/reresolve-villas.ts (UNKNOWN_VILLA bookkeeping
+ * after a mapping-driven re-resolution) — the same open/dedupe/resolve
+ * pattern, not a second implementation.
+ */
+export async function syncExceptions(
   supabase: SupabaseClient,
   type: string,
   toOpen: string[],

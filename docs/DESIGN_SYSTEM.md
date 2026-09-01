@@ -70,16 +70,16 @@ Applied per-cell via inline `style`, matching the pre-existing All Bookings pinn
 
 - **Header row(s)**: `position: sticky; top: <cumulative offset>`. A two-row header (e.g. a portfolio-group label row above a per-column label row) needs the second row's `top` set to the *first* row's exact pixel height — shadcn's `TableHead` is a fixed `h-10` (2.5rem/40px) by default, so this is a known constant, not a measurement; if that default height class ever changes, this offset must be updated alongside it.
 - **First column** (row labels — Date, in Monthly Performance): `position: sticky; left: 0`, fixed pixel width (not just `min-width`, so a long value can't shift the offset math for anything stickied to its right).
-- **Footer/summary rows** (optional — REPORTING_LOGIC.md §2b's rollups): `position: sticky; bottom: <cumulative offset>`, stacked bottom-up (the last row gets `bottom: 0`, earlier rows get increasing offsets). Because a `TableCell` has no fixed height by default (unlike `TableHead`), give every footer cell an explicit height class (e.g. `h-8` with `py-0`) so the stacking math is exact rather than assumed — this is the one part of this pattern that's more fragile than the header case, and reverting to a plain non-sticky (but still correctly column-aligned) footer is an acceptable fallback if a future change makes the fixed-height assumption unreliable.
+- **Footer/summary rows** (REPORTING_LOGIC.md §2b's rollups): `[REVISED]` **non-sticky, by confirmed decision** — sticky-bottom was tried first (`position: sticky; bottom: <cumulative offset>`, stacked bottom-up) and rejected: sticky-bottom cells near the end of a scrollable body have no way to reserve their own space, so while scrolling downward the "stuck" footer visually sits on top of the last daily rows still scrolling underneath it — indistinguishable from a broken/overlapping layout, and exactly what a bottom-sticky footer will always do in this container shape. Monthly Performance's footer rows are therefore plain in-flow `TableRow`s: only the first-column (Date/label) cell keeps `position: sticky; left: 0` (z-index 10, matching plain sticky-left body cells — it is not a corner cell, since it is not also top/bottom-sticky) so the row label stays aligned with the frozen first column during horizontal scroll; the value cells scroll normally in sync with the rest of the table, which keeps them exactly column-aligned since it's the same `<table>`. Each row still gets an explicit height (`h-8`, `py-0`) so rows stack with fixed, predictable heights, and `TableFooter`'s own default `border-t` supplies the separation from the last daily row. A long label (e.g. "Room Nights Sold") in the fixed-width first column uses a small font (`text-[10px]`) plus `truncate`/`title` rather than wrapping or bleeding past the column — confirm any new label actually fits at that width before adding it, since the first-column width is shared with, and must not diverge from, the Date column above it.
 - **The corner** (first column × header row) is sticky in *both* directions at once and must out-rank everything else in stacking order.
 
 ### Z-index scale (lowest to highest, so nothing bleeds through or overlaps the wrong element)
 
 ```
 0   ordinary cells (no sticky positioning)
-10  sticky first-column body cells (left only)
-20  sticky header cells (top only) and sticky footer cells (bottom only)
-30  the corner cell(s) — sticky in both directions, header and footer alike
+10  sticky first-column body cells (left only) — includes the non-sticky-footer's first-column cells (§3b footer note)
+20  sticky header cells (top only)
+30  the corner cell(s) — sticky in both directions, header only (the footer no longer stacks bottom-sticky cells, so it has no corner)
 ```
 
 Every sticky cell also needs an explicit solid background (`bg-card` for header/body, matching the footer's existing `bg-muted/40`) — without one, scrolling content visibly bleeds through underneath it, since the cell would otherwise inherit `transparent`.
