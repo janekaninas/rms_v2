@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -49,6 +50,7 @@ function ActionBadge({ action }: { action: "NEW" | "UPDATE" | "UNCHANGED" | "ERR
 export function UploadForm() {
   const [importKind, setImportKind] = useState<UiKind>("NEW_BOOKINGS");
   const [file, setFile] = useState<File | null>(null);
+  const [stayDate, setStayDate] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [roomRevenuePreview, setRoomRevenuePreview] = useState<RoomRevenuePreview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -66,6 +68,12 @@ export function UploadForm() {
       const fd = new FormData();
       fd.set("file", file);
       if (importKind === "ROOM_REVENUE") {
+        if (!stayDate) {
+          setError("Stay date is required — one Room Revenue file covers a single stay date.");
+          setLoading(false);
+          return;
+        }
+        fd.set("stay_date", stayDate);
         const p = await previewRoomRevenueAction(fd);
         setRoomRevenuePreview(p);
         setPreview(null);
@@ -98,6 +106,7 @@ export function UploadForm() {
         setPreview(null);
       }
       setFile(null);
+      setStayDate("");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -125,7 +134,13 @@ export function UploadForm() {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label htmlFor="import_kind">Import Type</Label>
-            <Select value={importKind} onValueChange={(v) => setImportKind(v as UiKind)}>
+            <Select
+              value={importKind}
+              onValueChange={(v) => {
+                setImportKind(v as UiKind);
+                setStayDate("");
+              }}
+            >
               <SelectTrigger id="import_kind" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -149,10 +164,28 @@ export function UploadForm() {
               className="block w-full text-sm text-foreground file:mr-3 file:rounded-md file:border file:bg-secondary file:px-3 file:py-1.5 file:text-sm"
             />
           </div>
+          {importKind === "ROOM_REVENUE" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="stay_date">Stay Date</Label>
+              <Input
+                id="stay_date"
+                type="date"
+                value={stayDate}
+                onChange={(e) => setStayDate(e.target.value)}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                One Room Revenue file covers a single stay date — entered here, not read from the file.
+              </p>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-4 flex items-center gap-3">
-          <Button onClick={handlePreview} disabled={!file || loading}>
+          <Button
+            onClick={handlePreview}
+            disabled={!file || loading || (importKind === "ROOM_REVENUE" && !stayDate)}
+          >
             {loading ? "Parsing…" : "Preview"}
           </Button>
           {committedId ? (

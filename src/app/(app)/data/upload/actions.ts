@@ -48,10 +48,12 @@ export async function commitImportAction(preview: ImportPreview) {
 export async function previewRoomRevenueAction(formData: FormData): Promise<RoomRevenuePreview> {
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No file provided.");
+  const stayDate = String(formData.get("stay_date") ?? "");
+  if (!stayDate) throw new Error("Stay date is required — one Room Revenue file covers a single stay date.");
 
   const text = await file.text();
   const table = parseVhpCsv(text, REQUIRED_HEADER_CELL);
-  const normalized = mapRoomRevenueRows(table);
+  const normalized = mapRoomRevenueRows(table, stayDate);
 
   const supabase = await createClient();
   return resolveRoomRevenueRows(supabase, file.name, normalized);

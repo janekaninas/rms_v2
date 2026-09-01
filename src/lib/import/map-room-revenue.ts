@@ -1,5 +1,5 @@
 import { ParsedTable } from "./csv";
-import { cleanText, parseFlexibleDate, parseLocaleNumber } from "./parse-utils";
+import { cleanText, parseLocaleNumber } from "./parse-utils";
 
 export interface NormalizedRoomRevenueRow {
   sourceRowNumber: number;
@@ -21,16 +21,18 @@ export interface NormalizedRoomRevenueRow {
  * per-night commercial revenue basis amount; "Room Rate" is used as a
  * fallback only when Room Revenue is blank, mirroring the same
  * preference already confirmed for the Bookings import (§1).
+ *
+ * Per Jane: one export file is always for a single stay date, entered
+ * manually at upload time rather than trusted from a per-row column —
+ * `stayDate` is applied uniformly to every row, the file's own "CURRENT
+ * DATE" column (if present) is not read.
  */
-export function mapRoomRevenueRows(table: ParsedTable): NormalizedRoomRevenueRow[] {
+export function mapRoomRevenueRows(table: ParsedTable, stayDate: string): NormalizedRoomRevenueRow[] {
   return table.rows.map((raw, i) => {
     const errors: string[] = [];
 
     const reservationNumber = cleanText(raw["Reservation Number"]);
     if (!reservationNumber) errors.push("Missing Reservation Number");
-
-    const stayDate = parseFlexibleDate(raw["CURRENT DATE"] ?? raw["Date"]);
-    if (!stayDate) errors.push(`Unparseable CURRENT DATE: "${raw["CURRENT DATE"]}"`);
 
     const roomRevenue = parseLocaleNumber(raw["Room Revenue"]);
     const roomRate = parseLocaleNumber(raw["Room Rate"]);
