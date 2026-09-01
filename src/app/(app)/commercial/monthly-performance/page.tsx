@@ -132,14 +132,21 @@ export default async function MonthlyPerformancePage({
                       );
                     }
 
-                    const rev = revenueByVilla.get(v.id)?.get(date);
-                    if (!rev) {
+                    // REPORTING_LOGIC.md §2a (corrected): an occupied night
+                    // always shows a revenue figure — Actual where a Room
+                    // Revenue row exists, Estimated (from the Booking/
+                    // Arrival Report total) otherwise. Blank is reserved for
+                    // zero occupancy; "Incomplete" only for a reservation
+                    // with no booking total or no resolvable payment rule.
+                    const occupiedForRevenue = occupancyByVilla.get(v.id)?.get(date) ?? 0;
+                    if (occupiedForRevenue === 0) {
                       return (
                         <TableCell key={v.id} className={`text-center text-xs text-muted-foreground/50 ${borderClass}`}>
                           —
                         </TableCell>
                       );
                     }
+                    const rev = revenueByVilla.get(v.id)?.get(date);
                     return (
                       <TableCell key={v.id} className={`p-0 text-center ${borderClass}`}>
                         <CellDrilldown villaId={v.id} villaLabel={`${v.villa_code} — ${v.name}`} date={date}>
@@ -147,10 +154,17 @@ export default async function MonthlyPerformancePage({
                             type="button"
                             className="flex h-full w-full items-center justify-center px-1 py-1.5 text-xs hover:bg-sidebar-accent"
                           >
-                            {rev.hasIncomplete ? (
-                              <span className="text-amber-700">Incomplete</span>
+                            {!rev || rev.incomplete ? (
+                              <span title="Missing booking total or unresolved channel payment rule" className="text-amber-700">
+                                Incomplete
+                              </span>
                             ) : (
-                              fmtNumber(rev.sum)
+                              <span
+                                title={rev.allActual ? "Actual (Room Revenue Breakdown)" : "Includes an estimated night — Room Revenue Breakdown not yet uploaded for this date"}
+                                className={rev.allActual ? undefined : "underline decoration-dotted decoration-accent-foreground"}
+                              >
+                                {fmtNumber(rev.netRevenue)}
+                              </span>
                             )}
                           </button>
                         </CellDrilldown>

@@ -11,6 +11,8 @@
 > **Revision note (v0.7 — new requirement, documentation only, not implemented in Day 3):** New §13a defines a flexible **Accounting / Revenue Breakdown reporting area** (Property Daily Revenue, Property Period Summary, Owner Revenue Report, and a standalone Reservation-level nightly breakdown), built entirely on the existing nightly allocation engine (`FINANCIAL_LOGIC.md` §7a, `daily_revenue`) — no new or duplicated financial calculation path. §1 (All Bookings) is extended with owner and reconciliation-state filters to match. This is a requirements addition for future scheduling (candidate Day 4+, alongside the Accounting Handoff view, §13) — it does not change or delay the Day 3 revenue-allocation correction, and nothing in this revision note authorizes starting Day 4 work.
 >
 > **Revision note (v0.8 — UX/data corrections, implemented within the current day):** §6's drill-down now requires a compact booking-summary header and a Print action for the individual reservation record (visual spec in `DESIGN_SYSTEM.md` §9a); §8's Pickup definition is corrected to anchor "new booking" on `reservations.booking_date` (Created Date), never an import timestamp or arrival date — a requirement for when Road to Target/Pickup is built, not yet implemented. No calculation logic already in production changes.
+>
+> **Revision note (v0.9 — Monthly Performance revenue correction, implemented):** §2a's "Net revenue for the date" formula is corrected — it was actual-`daily_revenue`-only and blank until Room Revenue Breakdown existed, which never matched the confirmed engine (`FINANCIAL_LOGIC.md` §7a/§7a-D) that All Bookings and Road to Target already used. An occupied night with a valid booking total now always shows Actual or Estimated, never blank; "Incomplete" is reserved for a genuinely unresolvable reservation (no total, or `MISSING_PAYMENT_RULE`). §2c's drill-down is substantially expanded: a header explaining the villa/date result (occupied/available RN, totals, actual/estimated composition) and per-reservation rows that open the full reservation detail. Summary (§3) inherits this correction automatically, since it reads the identical aggregation — no separate fix needed or made there.
 
 Defines the calculation and query shape behind every reporting page. All aggregation is server/database-side (indexed queries against `reservations` and `daily_revenue`), per the performance requirements — the browser never recomputes portfolio-wide totals from raw rows.
 
@@ -68,12 +70,21 @@ WHERE villa_id = :villa
 ```
 This mirrors the legacy `COUNTIFS('All Bookings', villa, arrival<=date, departure>date, not-duplicate, not-cancelled)` — note it counts at the **reservation** grain (arrival/departure range), not from `daily_revenue`, because occupancy should reflect the current booking position even for nights whose Room Revenue Breakdown hasn't been imported yet (e.g. future dates).
 
-**Net revenue for the date**:
-```sql
-SUM(daily_revenue.net_revenue)
-WHERE villa_id = :villa AND stay_date = :date
+**Net revenue for the date `[CORRECTED — v0.9]`**: revenue is available the moment a reservation's Booking/Arrival Report total is known, via the exact same engine every other report uses (`FINANCIAL_LOGIC.md` §7a/§7a-D) — never a raw actual-only sum that stays blank until an import happens:
+
 ```
-This mirrors the legacy `SUMIFS('ROOM REV', date, villa)` — deliberately sourced from the **daily** grain, not from the reservation-level total, because the whole point of the daily breakdown import is that nightly rates vary (PriceLabs). Confirm this only applies to dates that already have a Room Revenue Breakdown imported; for future/not-yet-imported dates, the cell should show as "not yet available," not zero (the legacy sheet handles this with `IF(date <= today, computed, blank)` — preserve that distinction so an empty future cell doesn't read as "no revenue expected").
+for every ACTIVE reservation whose stay dates include :date and whose villa_id = :villa:
+  allocation = allocateReservationNights(reservation)   -- FINANCIAL_LOGIC.md §7a
+  night = allocation.nights.find(n => n.stayDate === :date)
+SUM(night.netRevenue) across those reservations (a multi-unit villa can have more than one)
+```
+
+This supersedes the previous `SUM(daily_revenue.net_revenue) WHERE villa_id=:villa AND stay_date=:date` formula and its accompanying instruction to leave a not-yet-imported date blank — that behavior mirrored the legacy sheet's `IF(date<=today, computed, blank)`, but it was never a deliberate business rule for this platform; it was §7a's confirmed model simply not having been carried into Monthly Performance yet. The corrected behavior:
+
+- **Occupied (≥1) + a resolvable booking total → always a number.** Actual where a Room Revenue Breakdown row exists for that night, the §7a-A/B estimate otherwise (progressive remaining-revenue for OTA/unconfirmed Direct-TA, even-split for an approved override) — visually distinguished (e.g. a dotted underline or equivalent subtle marker on an Estimated figure), never silently identical in appearance to an Actual one.
+- **Zero occupancy → blank.** This is the only case a cell has nothing to show — there is no reservation to allocate.
+- **"Incomplete" → only when the occupying reservation itself is unresolvable**: no booking total at all, or an open `MISSING_PAYMENT_RULE` exception (no `channel_payment_rules` row resolves). Never used as a stand-in for "no Room Revenue Breakdown yet" — that case is Estimated, not Incomplete.
+- A cell touched by more than one reservation (multi-unit villa) sums their individual night figures; if any one of them is Incomplete, the cell is Incomplete (excluded from the villa's monthly rollup, §2b) even if the others resolved fine — never blend a resolved and an unresolved figure into one silently-partial number.
 
 ### 2b. Per-villa monthly rollups (bottom of the matrix, or a summary row)
 
@@ -83,6 +94,13 @@ This mirrors the legacy `SUMIFS('ROOM REV', date, villa)` — deliberately sourc
 - **Monthly net revenue** = `SUM(net revenue)` across the month for that villa.
 
 ### 2c. Drill-down (see §6) must be reachable from every cell — this replaces the black-box numbers in the current pivot sheets.
+
+`[NEW — v0.9]` The cell drill-down must *explain* the villa/date result, not just list numbers next to each other:
+
+- **Header**: Villa, Stay Date, Occupied RN / Available RN (occupied count over `villas.unit_count` for that date), Total Commercial Revenue, Total Net Revenue, and an Actual-vs-Estimated composition summary (e.g. "All Actual" / "All Estimated" / "1 Actual, 1 Estimated" for a multi-unit villa's mixed cell).
+- **One row per contributing reservation**: Reservation Number, Guest, Channel, Arrival, Departure, Status, Revenue Source (Actual/Estimated badge), Commercial Revenue, Commission, VAT, PB1, Net Revenue — this is that reservation's figures for *this specific night* only, via the same `allocateReservationNights()` call, not a re-derivation.
+- **Each row opens the full reservation detail** (the same drill-down defined in §6/§1) — same component, not a second implementation, so its own nightly breakdown and Manual Revenue Override section are one click away without leaving the matrix.
+- **Totals row** at the bottom, summing the visible reservation rows' Commercial Revenue/Commission/VAT/PB1/Net Revenue — must equal the header's Total figures by construction (same source rows, just aggregated twice for the header summary and the footer confirmation).
 
 ### 2d. Do not build this as a chart-only view
 

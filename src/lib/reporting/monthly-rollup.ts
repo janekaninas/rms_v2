@@ -1,7 +1,22 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Villa } from "@/lib/types";
+import { allocateReservationNights } from "@/lib/financial/allocate";
+import { loadAllocationContext } from "@/lib/financial/context";
 import { getMonthRange, getVillasForPeriod, listDatesInMonth, managedDaysInMonth, type MonthRange } from "./period";
 import { computeOccupancyByVillaDate, type OccupancyReservation } from "./occupancy";
+
+export interface CellRevenue {
+  commercialRevenue: number;
+  commission: number;
+  commissionVat: number;
+  serviceChargeExtraction: number;
+  pb1: number;
+  netRevenue: number;
+  /** Every contributing reservation-night is an actual Room Revenue row. */
+  allActual: boolean;
+  /** No channel payment rule (or no booking total at all) for at least one contributing reservation — excluded from netRevenue, surfaced as "Incomplete". */
+  incomplete: boolean;
+}
 
 export interface MonthlyPerformanceData {
   range: MonthRange;
@@ -9,15 +24,18 @@ export interface MonthlyPerformanceData {
   aasha: Villa[];
   balinest: Villa[];
   occupancyByVilla: Map<string, Map<string, number>>;
-  revenueByVilla: Map<string, Map<string, { sum: number; hasIncomplete: boolean }>>;
+  revenueByVilla: Map<string, Map<string, CellRevenue>>;
 }
 
 /**
- * The one query set behind both Monthly Performance's per-villa-per-date
- * matrix and Summary's per-portfolio-per-month rollup — REPORTING_LOGIC.md
- * §3 is explicit that Summary must not diverge from Monthly Performance's
- * calculation, so both read from this same function rather than each
- * re-deriving occupancy/revenue independently.
+ * FINANCIAL_LOGIC.md §7a / REPORTING_LOGIC.md §2a (corrected): revenue is
+ * available the moment a reservation's Booking/Arrival Report total is
+ * known — every occupied night uses allocateReservationNights()'s actual
+ * (if a Room Revenue Breakdown row exists) or estimated (progressive
+ * remaining-revenue / approved-override even-split) figure, never a raw
+ * daily_revenue sum that stays blank until an import happens. This is the
+ * one query set behind both Monthly Performance's matrix and Summary's
+ * rollup (§3) — both read from here so they can never diverge.
  */
 export async function loadMonthlyPerformanceData(
   supabase: SupabaseClient,
@@ -29,43 +47,89 @@ export async function loadMonthlyPerformanceData(
   const { aasha, balinest } = await getVillasForPeriod(supabase, range);
   const villaIds = [...aasha, ...balinest].map((v) => v.id);
 
-  const [{ data: reservations }, { data: dailyRows }] = villaIds.length
-    ? await Promise.all([
-        supabase
-          .from("reservations")
-          .select("id, villa_id, arrival_date, departure_date, status")
-          .in("villa_id", villaIds)
-          .lt("arrival_date", range.endExclusive)
-          .gt("departure_date", range.start),
-        supabase
+  const { data: reservationRows } = villaIds.length
+    ? await supabase
+        .from("reservations")
+        .select("id, villa_id, channel_id, arrival_date, departure_date, status, system_gross_revenue, final_gross_revenue")
+        .in("villa_id", villaIds)
+        .lt("arrival_date", range.endExclusive)
+        .gt("departure_date", range.start)
+    : { data: [] };
+  const allReservations = reservationRows ?? [];
+
+  const occupancyByVilla = computeOccupancyByVillaDate(allReservations as OccupancyReservation[], dates);
+
+  const activeReservations = allReservations.filter((r) => r.status === "ACTIVE" && r.villa_id);
+  const reservationIds = activeReservations.map((r) => r.id);
+  const channelIds = [...new Set(activeReservations.map((r) => r.channel_id).filter((v): v is string => v !== null))];
+
+  const [{ data: dailyRows }, allocationContext] = await Promise.all([
+    reservationIds.length
+      ? supabase
           .from("daily_revenue")
-          .select("villa_id, stay_date, net_revenue")
-          .in("villa_id", villaIds)
+          .select("reservation_id, stay_date, commercial_revenue_basis_amount")
+          .in("reservation_id", reservationIds)
           .eq("revenue_type", "STAY")
-          .gte("stay_date", range.start)
-          .lte("stay_date", range.endInclusive),
-      ])
-    : [{ data: [] }, { data: [] }];
+      : Promise.resolve({ data: [] }),
+    loadAllocationContext(supabase, villaIds, channelIds),
+  ]);
 
-  const occupancyByVilla = computeOccupancyByVillaDate((reservations ?? []) as OccupancyReservation[], dates);
-
-  const revenueByVilla = new Map<string, Map<string, { sum: number; hasIncomplete: boolean }>>();
+  const actualByReservation = new Map<string, { stayDate: string; amount: number }[]>();
   for (const row of dailyRows ?? []) {
-    const villaId = row.villa_id as string | null;
-    if (!villaId) continue;
+    const list = actualByReservation.get(row.reservation_id as string) ?? [];
+    list.push({ stayDate: row.stay_date as string, amount: row.commercial_revenue_basis_amount as number });
+    actualByReservation.set(row.reservation_id as string, list);
+  }
+
+  const revenueByVilla = new Map<string, Map<string, CellRevenue>>();
+  for (const r of activeReservations) {
+    const villaId = r.villa_id as string;
+    const authoritativeTotal = r.final_gross_revenue ?? r.system_gross_revenue ?? null;
+    const allocation = allocateReservationNights({
+      arrivalDate: r.arrival_date,
+      departureDate: r.departure_date,
+      authoritativeTotal,
+      actualRows: actualByReservation.get(r.id) ?? [],
+      channelId: r.channel_id,
+      villaId,
+      villaGroupId: allocationContext.villaGroupByVilla.get(villaId) ?? null,
+      rules: allocationContext.rules,
+      assignments: allocationContext.assignments,
+      profiles: allocationContext.profiles,
+    });
+
     let dateMap = revenueByVilla.get(villaId);
     if (!dateMap) {
       dateMap = new Map();
       revenueByVilla.set(villaId, dateMap);
     }
-    const stayDate = row.stay_date as string;
-    const existing = dateMap.get(stayDate) ?? { sum: 0, hasIncomplete: false };
-    if (row.net_revenue === null) {
-      existing.hasIncomplete = true;
-    } else {
-      existing.sum += row.net_revenue as number;
+
+    for (const night of allocation.nights) {
+      if (night.stayDate < range.start || night.stayDate > range.endInclusive) continue;
+      const existing = dateMap.get(night.stayDate) ?? {
+        commercialRevenue: 0,
+        commission: 0,
+        commissionVat: 0,
+        serviceChargeExtraction: 0,
+        pb1: 0,
+        netRevenue: 0,
+        allActual: true,
+        incomplete: authoritativeTotal === null,
+      };
+      existing.commercialRevenue += night.amount;
+      if (night.netRevenue === null) {
+        existing.incomplete = true;
+      } else {
+        existing.commission += night.commission ?? 0;
+        existing.commissionVat += night.commissionVat ?? 0;
+        existing.serviceChargeExtraction += night.serviceChargeExtraction ?? 0;
+        existing.pb1 += night.pb1 ?? 0;
+        existing.netRevenue += night.netRevenue;
+      }
+      if (!night.isActual) existing.allActual = false;
+      if (authoritativeTotal === null) existing.incomplete = true;
+      dateMap.set(night.stayDate, existing);
     }
-    dateMap.set(stayDate, existing);
   }
 
   return { range, dates, aasha, balinest, occupancyByVilla, revenueByVilla };
@@ -92,8 +156,8 @@ export function rollupVilla(villa: Villa, data: MonthlyPerformanceData): VillaMo
     roomNightsSold += occDates?.get(date) ?? 0;
     const rev = revDates?.get(date);
     if (rev) {
-      monthlyNetRevenue += rev.sum;
-      if (rev.hasIncomplete) incompleteCount++;
+      monthlyNetRevenue += rev.netRevenue;
+      if (rev.incomplete) incompleteCount++;
     }
   }
   const managedDays = managedDaysInMonth(villa, data.range);
