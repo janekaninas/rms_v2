@@ -48,6 +48,46 @@ The sidebar has two width states, toggled by one explicit, always-visible contro
 - **Preference persistence**: the collapsed/expanded choice is a per-browser `localStorage` preference (not a server-side/account setting) — it survives a refresh, and applying it on load must not itself count as a user-visible "animation" (no slide-open-then-shut flash for a returning collapsed-preferring user).
 - **Transitions stay subtle and functional**: a short width transition on manual toggle only (no motion on initial load), no easing flourishes, no icon-rotation or fade choreography — this is a state change, not a moment to showcase motion design, consistent with §1's "explicitly avoid... animated counters" instruction generalized to navigation.
 
+## 3b. `[NEW]` Fixed app shell and bounded, spreadsheet-style scrolling
+
+Two related but distinct things, easy to conflate: the **app shell** (sidebar + page chrome) never scrolls away, and a **dense matrix report** (Monthly Performance today; any future villa/date-style grid) manages its own scrolling independently of the page around it.
+
+### App shell
+
+The shared layout (`(app)/layout.tsx`) is `h-screen overflow-hidden` at its root — **not** `min-h-screen`. This is the one line that keeps the sidebar fixed: `min-height` only sets a floor, so a page taller than one viewport grows the row past 100vh and the *document itself* becomes the scroll container — dragging the sidebar out of view with it, since it's a normal-flow sibling, not `position: fixed`/`sticky`. Bounding the root to exactly one viewport forces `main`'s own `overflow-y-auto` to be the thing that scrolls instead, which is what actually keeps the sidebar (and, on a report page, the page header) visually pinned. This is a layout-level fix, not a per-page one — every page benefits, and a normal page (a form, a shortish table) needs no further changes; it keeps scrolling via `main` exactly as before.
+
+### Bounded, independently-scrolling report (Monthly Performance's pattern)
+
+A page that wants its **own** header to stay put while only a matrix beneath it scrolls (rather than the whole page scrolling via `main`) needs one more layer, entirely within that page's own component — no coordination with the shell beyond what §3b's app-shell fix already provides:
+
+1. The page's root element: `flex h-full min-h-0 flex-col`. `h-full` fills exactly what `main` gives it (this only resolves correctly because the shared layout's content wrapper is a real `h-full`, not `min-h-full` — a min-height yields to taller content, which would make a percentage-height descendant inherit that grown size instead of `main`'s actual visible height, defeating the whole point). `min-h-0` overrides the flexbox default of `min-height: auto` on a flex-column child, which otherwise sizes the item to fit its content first — the classic reason a "flex-1 + overflow-auto" child silently fails to actually bound itself.
+2. A `shrink-0` zone for the page header/title/filters/selectors — this portion never scrolls, ever.
+3. A `min-h-0 flex-1 overflow-auto` zone for the matrix — this is the **one and only** scroll container, for both axes. Do not additionally wrap the table in the shared `Table` component for this use case: that component hardcodes its own `overflow-x-auto` div around `<table>`, which creates a second, nested, competing horizontal scroll context — sticky-left cells need exactly one scrolling ancestor per axis to position against, and two nested ones break that. Use `TableHeader`/`TableBody`/`TableRow`/`TableHead`/`TableCell`/`TableFooter` directly around a plain `<table className="w-full caption-bottom text-sm">` (the same classes the shared `Table` component applies) instead.
+
+### Sticky matrix cells
+
+Applied per-cell via inline `style`, matching the pre-existing All Bookings pinned-column convention (§9a) — not `position: sticky` on `<thead>`/`<tfoot>` as a whole, for consistent cross-browser behavior:
+
+- **Header row(s)**: `position: sticky; top: <cumulative offset>`. A two-row header (e.g. a portfolio-group label row above a per-column label row) needs the second row's `top` set to the *first* row's exact pixel height — shadcn's `TableHead` is a fixed `h-10` (2.5rem/40px) by default, so this is a known constant, not a measurement; if that default height class ever changes, this offset must be updated alongside it.
+- **First column** (row labels — Date, in Monthly Performance): `position: sticky; left: 0`, fixed pixel width (not just `min-width`, so a long value can't shift the offset math for anything stickied to its right).
+- **Footer/summary rows** (optional — REPORTING_LOGIC.md §2b's rollups): `position: sticky; bottom: <cumulative offset>`, stacked bottom-up (the last row gets `bottom: 0`, earlier rows get increasing offsets). Because a `TableCell` has no fixed height by default (unlike `TableHead`), give every footer cell an explicit height class (e.g. `h-8` with `py-0`) so the stacking math is exact rather than assumed — this is the one part of this pattern that's more fragile than the header case, and reverting to a plain non-sticky (but still correctly column-aligned) footer is an acceptable fallback if a future change makes the fixed-height assumption unreliable.
+- **The corner** (first column × header row) is sticky in *both* directions at once and must out-rank everything else in stacking order.
+
+### Z-index scale (lowest to highest, so nothing bleeds through or overlaps the wrong element)
+
+```
+0   ordinary cells (no sticky positioning)
+10  sticky first-column body cells (left only)
+20  sticky header cells (top only) and sticky footer cells (bottom only)
+30  the corner cell(s) — sticky in both directions, header and footer alike
+```
+
+Every sticky cell also needs an explicit solid background (`bg-card` for header/body, matching the footer's existing `bg-muted/40`) — without one, scrolling content visibly bleeds through underneath it, since the cell would otherwise inherit `transparent`.
+
+### Verifying this pattern
+
+Check computed positions before/after a programmatic scroll (a sticky element's bounding rect should be *identical* before and after scrolling the axis it's stuck against), not just a visual screenshot — a small offset error is easy to miss by eye but shows up immediately as a changed `top`/`left`/`bottom` value.
+
 ## 4. Tables (this is the most important component — most pages are tables)
 
 - Compact row height — the reference's Pricing Rules and Product Price Table rows are dense (roughly 48–56px), not the airy ~72px rows common in consumer SaaS.

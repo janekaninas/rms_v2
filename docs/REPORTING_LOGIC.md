@@ -13,6 +13,8 @@
 > **Revision note (v0.8 — UX/data corrections, implemented within the current day):** §6's drill-down now requires a compact booking-summary header and a Print action for the individual reservation record (visual spec in `DESIGN_SYSTEM.md` §9a); §8's Pickup definition is corrected to anchor "new booking" on `reservations.booking_date` (Created Date), never an import timestamp or arrival date — a requirement for when Road to Target/Pickup is built, not yet implemented. No calculation logic already in production changes.
 >
 > **Revision note (v0.9 — Monthly Performance revenue correction, implemented):** §2a's "Net revenue for the date" formula is corrected — it was actual-`daily_revenue`-only and blank until Room Revenue Breakdown existed, which never matched the confirmed engine (`FINANCIAL_LOGIC.md` §7a/§7a-D) that All Bookings and Road to Target already used. An occupied night with a valid booking total now always shows Actual or Estimated, never blank; "Incomplete" is reserved for a genuinely unresolvable reservation (no total, or `MISSING_PAYMENT_RULE`). §2c's drill-down is substantially expanded: a header explaining the villa/date result (occupied/available RN, totals, actual/estimated composition) and per-reservation rows that open the full reservation detail. Summary (§3) inherits this correction automatically, since it reads the identical aggregation — no separate fix needed or made there.
+>
+> **Revision note (v0.10 — spreadsheet-style scrolling, implemented):** New §2f states the Monthly Performance matrix must behave like a frozen-pane spreadsheet — fixed app shell, independently-scrolling bounded matrix, sticky column headers/Date column/rollup footer — with the full implementation technique in `DESIGN_SYSTEM.md` §3b. This also fixes a shell-level bug affecting every page, not only this one: the sidebar could scroll out of view on any page taller than one viewport, because the shared layout used `min-h-screen` rather than a true `h-screen`. UI/layout only — no calculation changes.
 
 Defines the calculation and query shape behind every reporting page. All aggregation is server/database-side (indexed queries against `reservations` and `daily_revenue`), per the performance requirements — the browser never recomputes portfolio-wide totals from raw rows.
 
@@ -109,6 +111,10 @@ The brief is explicit: "Do not replace it with only charts... I need to be able 
 ### 2e. Performance
 
 Changing the month selector should feel instant. This means: one indexed query per matrix (occupancy) and one per matrix (revenue), parameterized by month and portfolio, not 26 villas × 31 dates = 800+ individual queries. Prefer a single grouped query (`GROUP BY villa_id, stay_date`) over per-cell queries, with the UI pivoting the already-fetched rows into the grid client-side (this is fine — it's a small, bounded result set per month, not a full-history scan).
+
+### 2f. `[NEW — v0.10]` Scrolling and layout — a bounded, spreadsheet-style report
+
+The matrix behaves like a frozen-pane spreadsheet, not a page that happens to contain a wide table: the page's own title/view-toggle/month-selector stay fixed while only the matrix scrolls, the matrix scrolls independently in both directions (never the whole browser page), its villa-column headers and Date column stay pinned against that scrolling, and the app shell (sidebar) is unaffected regardless of how tall the matrix gets. Full implementation spec — the app-shell fix, the bounded-container technique, sticky-cell conventions, and the z-index scale — is `DESIGN_SYSTEM.md` §3b; this section states the *requirement*, that doc states *how*.
 
 ## 3. Summary
 
