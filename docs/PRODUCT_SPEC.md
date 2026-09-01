@@ -17,6 +17,8 @@ This document is part of a documentation set that is authoritative for the build
 > **Revision note (v0.6 — new requirement, documentation only):** §5 (Navigation) and §7 (Required outputs) add a new **Accounting / Revenue Breakdown reporting area** (Property Daily Revenue, Property Period Summary, Owner Revenue Report, Reservation-level nightly breakdown — full spec in `REPORTING_LOGIC.md` §13a), built on the same nightly allocation engine as every other report, no duplicated calculation path. It is a candidate for **Day 4 or later**, alongside the existing Day-7 Accounting Handoff view (§8, §13 in `REPORTING_LOGIC.md`) — not Day-7-critical, and exact day placement is left to `IMPLEMENTATION_PLAN.md`'s next sequencing pass. This revision adds the requirement only; nothing here authorizes starting the work before it is scheduled.
 >
 > **Revision note (v0.7 — collapsible sidebar, implemented this revision):** §5's navigation shell is now collapsible (expanded: labels + icons; collapsed: icon-only rail with hover tooltips), a per-browser `localStorage` preference, with the active-page highlight preserved in both states and main content automatically reflowing to use the freed width. Full behavioral/visual spec in `DESIGN_SYSTEM.md` §3a. This is UI shell infrastructure applying to the navigation map as a whole, not a change to which pages exist, their day placement, or the four-domain architecture (§2) — nothing here reopens any of that.
+>
+> **Revision note (v0.8 — Day 4 built):** Monthly Performance, Summary, and Road to Target (core field list) are now live, per `IMPLEMENTATION_PLAN.md`'s Day 4 entry. §5's nav diagram gains a **Summary** line that a prior revision omitted despite it always being a required output (§7 item 2, "Portfolio Summary" — carried over from v0.1). Channel Performance is deliberately not built this pass — it remains Day-7-optional/first-to-defer per §7 item 9 and `REPORTING_LOGIC.md` §9, and Day 4 had room to do the three required reports well rather than stretch across four. No financial-logic or architecture change.
 
 ## 1. Why this exists `[CARRIED OVER, extended]`
 
@@ -94,6 +96,7 @@ OVERVIEW
 
 COMMERCIAL
   Monthly Performance                    Day 7
+  Summary                                Day 7 `[CORRECTED — v0.8, always a required output (§7 item 2, "Portfolio Summary") but omitted from this nav enumeration until now]`
   Road to Target                         Day 7 (core fields; forecast may slip)
   All Bookings                           Day 7
   Channel Performance                    Day 7 (OPTIONAL — first deferrable report if OTA Settlement/Bank Reconciliation is at risk)

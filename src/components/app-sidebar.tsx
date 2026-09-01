@@ -12,6 +12,7 @@ import {
   Target,
   ClipboardList,
   ChartColumn,
+  Table2,
   ListChecks,
   Landmark,
   Building2,
@@ -91,8 +92,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Commercial",
     items: [
-      { label: "Monthly Performance", day: "Day 7", icon: Calendar },
-      { label: "Road to Target", day: "Day 7", icon: Target },
+      { label: "Monthly Performance", href: "/commercial/monthly-performance", icon: Calendar },
+      { label: "Summary", href: "/commercial/summary", icon: Table2 },
+      { label: "Road to Target", href: "/commercial/road-to-target", icon: Target },
       { label: "All Bookings", href: "/commercial/all-bookings", icon: ClipboardList },
       { label: "Channel Performance", day: "Day 7 (optional)", icon: ChartColumn },
     ],

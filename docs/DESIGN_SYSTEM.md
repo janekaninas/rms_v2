@@ -56,7 +56,7 @@ The sidebar has two width states, toggled by one explicit, always-visible contro
 - Status/delta indicators as small inline icon+color+value (reference: green up-arrow + percentage), not full badges, when space is tight; full pill badges (reference: "Storewide", "Collection", "Product" scope tags) reserved for categorical fields like reconciliation type or channel.
 - Row-level actions as a trailing "…" overflow menu (reference pattern) rather than multiple visible icon buttons per row, to keep density high.
 - Pagination controls at the bottom, minimal (page numbers + prev/next), matching the reference's "Showing 1–08 of 64 · 1 2 3 4 … 8".
-- This is exactly the component AG Grid is well-suited for on the Monthly Performance matrix specifically (villa × date grid with frozen headers/columns, cell-level drill-down) — see `IMPLEMENTATION_PLAN.md` / `TECHNICAL DIRECTION` for the evaluation note. Simpler tables (All Bookings, Import History) likely don't need AG Grid's overhead — a shadcn/ui `Table` + server-side pagination is sufficient and keeps the dependency footprint down ("do not install unnecessary dependencies").
+- `[EVALUATED, Day 4 — AG Grid rejected]` CLAUDE.md's stack note approved AG Grid for Monthly Performance specifically "if evaluation confirms it's warranted." Evaluated at build time: the matrix tops out around 33 villas × 31 dates (~1,000 cells), well within plain-HTML-table territory, and the "frozen headers/columns" requirement is fully met with the same `position: sticky` technique already used for All Bookings' pinned columns (§9a) — no virtualization or cell-level editing is needed. Given that, AG Grid would be a substantial dependency (bundle size, its own styling system to reconcile with §1–§2's restraint) for no capability this dataset actually needs — built as a shadcn `Table` instead, per CLAUDE.md rule 16 ("do not install unnecessary dependencies"). Revisit only if the villa count or per-cell interaction needs grow well beyond this.
 
 ## 5. Cards / stat tiles
 
@@ -77,7 +77,7 @@ The sidebar has two width states, toggled by one explicit, always-visible contro
 | Buttons | shadcn `Button` (`default` = violet filled for primary actions, `outline` for secondary like "Sync"/"Report") |
 | Toggles (rule active/inactive) | shadcn `Switch`, violet when on |
 | Filter chips / scope tags | shadcn `Badge` |
-| Tables | shadcn `Table` (All Bookings, Import History, Reconciliation, Villa Mapping, OTA/Channel Rules) + AG Grid specifically for the Monthly Performance matrix |
+| Tables | shadcn `Table` for all tables, including the Monthly Performance matrix — AG Grid evaluated and rejected for it, see §4 |
 | Month selector | shadcn `Select` or a compact prev/next + label control, per the brief's example `< July 2026 | August 2026 | September 2026 >` |
 | Upload | shadcn `Card` + native file input + a preview `Table` before commit |
 | Drill-down | shadcn `Dialog` or `Sheet` (side panel) triggered from a table cell/row |

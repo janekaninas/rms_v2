@@ -1,0 +1,201 @@
+import type { CSSProperties } from "react";
+import { createClient } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/page-header";
+import { MonthSelector } from "@/components/month-selector";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { loadMonthlyPerformanceData, rollupVilla, type VillaMonthlyRollup } from "@/lib/reporting/monthly-rollup";
+import type { Villa } from "@/lib/types";
+import { CellDrilldown } from "./cell-drilldown";
+import { ViewToggle } from "./view-toggle";
+
+const DATE_COL_WIDTH = 96;
+const VILLA_COL_WIDTH = 84;
+
+function fmtNumber(v: number) {
+  return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+function isManagedOnDate(villa: Villa, date: string): boolean {
+  if (date < villa.management_start_date) return false;
+  if (villa.management_end_date && date > villa.management_end_date) return false;
+  return true;
+}
+
+function dateColStyle(): CSSProperties {
+  return { position: "sticky", left: 0, width: DATE_COL_WIDTH, minWidth: DATE_COL_WIDTH, maxWidth: DATE_COL_WIDTH };
+}
+
+export default async function MonthlyPerformancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ year?: string; month?: string; view?: string }>;
+}) {
+  const params = await searchParams;
+  const today = new Date();
+  const year = Number(params.year) || today.getUTCFullYear();
+  const month = Number(params.month) || today.getUTCMonth() + 1;
+  const view = params.view === "revenue" ? "revenue" : "occupancy";
+
+  const supabase = await createClient();
+  const data = await loadMonthlyPerformanceData(supabase, year, month);
+  const { aasha, balinest, dates, occupancyByVilla, revenueByVilla } = data;
+  const orderedVillas = [...aasha, ...balinest];
+
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Commercial"
+        title="Monthly Performance"
+        actions={
+          <div className="flex items-center gap-3">
+            <ViewToggle view={view} />
+            <MonthSelector year={year} month={month} />
+          </div>
+        }
+      />
+
+      {orderedVillas.length === 0 ? (
+        <div className="rounded-lg border bg-card py-16 text-center text-sm text-muted-foreground">
+          No villa is under management for this period yet.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead style={dateColStyle()} className="z-20 bg-card" rowSpan={2}>
+                  Date
+                </TableHead>
+                {aasha.length > 0 && (
+                  <TableHead colSpan={aasha.length} className="border-l text-center text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Aasha
+                  </TableHead>
+                )}
+                {balinest.length > 0 && (
+                  <TableHead colSpan={balinest.length} className="border-l text-center text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Balinest
+                  </TableHead>
+                )}
+              </TableRow>
+              <TableRow>
+                {orderedVillas.map((v, i) => (
+                  <TableHead
+                    key={v.id}
+                    title={v.name}
+                    style={{ width: VILLA_COL_WIDTH, minWidth: VILLA_COL_WIDTH, maxWidth: VILLA_COL_WIDTH }}
+                    className={i === 0 || i === aasha.length ? "border-l text-center" : "text-center"}
+                  >
+                    {v.villa_code}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {dates.map((date) => (
+                <TableRow key={date}>
+                  <TableCell style={dateColStyle()} className="z-10 bg-card font-medium">
+                    {date.slice(8, 10)}
+                  </TableCell>
+                  {orderedVillas.map((v, i) => {
+                    const managed = isManagedOnDate(v, date);
+                    const borderClass = i === 0 || i === aasha.length ? "border-l" : "";
+
+                    if (!managed) {
+                      return (
+                        <TableCell key={v.id} className={`text-center text-muted-foreground/30 ${borderClass}`}>
+                          ·
+                        </TableCell>
+                      );
+                    }
+
+                    if (view === "occupancy") {
+                      const occupied = occupancyByVilla.get(v.id)?.get(date) ?? 0;
+                      return (
+                        <TableCell key={v.id} className={`p-0 text-center ${borderClass}`}>
+                          <CellDrilldown villaId={v.id} villaLabel={`${v.villa_code} — ${v.name}`} date={date}>
+                            <button
+                              type="button"
+                              className="flex h-full w-full items-center justify-center px-2 py-1.5 hover:bg-sidebar-accent"
+                            >
+                              {occupied > 0 ? occupied : <span className="text-muted-foreground/50">0</span>}
+                            </button>
+                          </CellDrilldown>
+                        </TableCell>
+                      );
+                    }
+
+                    const rev = revenueByVilla.get(v.id)?.get(date);
+                    if (!rev) {
+                      return (
+                        <TableCell key={v.id} className={`text-center text-xs text-muted-foreground/50 ${borderClass}`}>
+                          —
+                        </TableCell>
+                      );
+                    }
+                    return (
+                      <TableCell key={v.id} className={`p-0 text-center ${borderClass}`}>
+                        <CellDrilldown villaId={v.id} villaLabel={`${v.villa_code} — ${v.name}`} date={date}>
+                          <button
+                            type="button"
+                            className="flex h-full w-full items-center justify-center px-1 py-1.5 text-xs hover:bg-sidebar-accent"
+                          >
+                            {rev.hasIncomplete ? (
+                              <span className="text-amber-700">Incomplete</span>
+                            ) : (
+                              fmtNumber(rev.sum)
+                            )}
+                          </button>
+                        </CellDrilldown>
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              {(
+                [
+                  { label: "Room Nights Sold", render: (r: VillaMonthlyRollup) => fmtNumber(r.roomNightsSold) },
+                  {
+                    label: "Occupancy %",
+                    render: (r: VillaMonthlyRollup) => (r.occupancyPct === null ? "—" : `${(r.occupancyPct * 100).toFixed(0)}%`),
+                  },
+                  { label: "ARR", render: (r: VillaMonthlyRollup) => (r.arr === null ? "—" : fmtNumber(r.arr)) },
+                  { label: "Net Revenue", render: (r: VillaMonthlyRollup) => fmtNumber(r.monthlyNetRevenue) },
+                ] as const
+              ).map((row) => (
+                <TableRow key={row.label} className="bg-muted/40 font-medium">
+                  <TableCell style={dateColStyle()} className="z-10 bg-muted/40">
+                    {row.label}
+                  </TableCell>
+                  {orderedVillas.map((v, i) => {
+                    const r = rollupVilla(v, data);
+                    const borderClass = i === 0 || i === aasha.length ? "border-l" : "";
+                    return (
+                      <TableCell key={v.id} className={`text-center text-xs ${borderClass}`}>
+                        {row.render(r)}
+                        {row.label === "Net Revenue" && r.incompleteCount > 0 ? (
+                          <span title={`${r.incompleteCount} date(s) incomplete — MISSING_PAYMENT_RULE`} className="ml-1 text-amber-700">
+                            *
+                          </span>
+                        ) : null}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableFooter>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}

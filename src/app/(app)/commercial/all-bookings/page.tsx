@@ -15,7 +15,7 @@ import Link from "next/link";
 import { AllBookingsFilters } from "./filters";
 import { ReservationDrilldown } from "./reservation-drilldown";
 import { allocateReservationNights } from "@/lib/financial/allocate";
-import type { ChannelPaymentRuleRow, TaxProfileAssignmentRow, TaxProfileRow } from "@/lib/financial/types";
+import { loadAllocationContext } from "@/lib/financial/context";
 
 const PAGE_SIZE = 50;
 
@@ -76,29 +76,19 @@ export default async function AllBookingsPage({
   const channelIds = [...new Set((reservations ?? []).map((r) => r.channel_id).filter((v): v is string => v !== null))];
   const villaIds = [...new Set((reservations ?? []).map((r) => r.villa_id).filter((v): v is string => v !== null))];
 
-  const [{ data: dailyRows }, { data: overrides }, { data: villaRows }, { data: rules }, { data: assignments }, { data: profiles }] =
-    await Promise.all([
-      reservationIds.length
-        ? supabase
-            .from("daily_revenue")
-            .select("reservation_id, stay_date, commercial_revenue_basis_amount")
-            .in("reservation_id", reservationIds)
-            .eq("revenue_type", "STAY")
-        : Promise.resolve({ data: [] }),
-      reservationIds.length
-        ? supabase.from("revenue_overrides").select("reservation_id, status").in("reservation_id", reservationIds)
-        : Promise.resolve({ data: [] }),
-      villaIds.length
-        ? supabase.from("villas").select("id, villa_group_id").in("id", villaIds)
-        : Promise.resolve({ data: [] }),
-      channelIds.length
-        ? supabase.from("channel_payment_rules").select("*").in("channel_id", channelIds)
-        : Promise.resolve({ data: [] }),
-      villaIds.length
-        ? supabase.from("villa_tax_profile_assignments").select("*").in("villa_id", villaIds)
-        : Promise.resolve({ data: [] }),
-      supabase.from("villa_tax_profiles").select("*"),
-    ]);
+  const [{ data: dailyRows }, { data: overrides }, allocationContext] = await Promise.all([
+    reservationIds.length
+      ? supabase
+          .from("daily_revenue")
+          .select("reservation_id, stay_date, commercial_revenue_basis_amount")
+          .in("reservation_id", reservationIds)
+          .eq("revenue_type", "STAY")
+      : Promise.resolve({ data: [] }),
+    reservationIds.length
+      ? supabase.from("revenue_overrides").select("reservation_id, status").in("reservation_id", reservationIds)
+      : Promise.resolve({ data: [] }),
+    loadAllocationContext(supabase, villaIds, channelIds),
+  ]);
 
   const actualByReservation = new Map<string, { stayDate: string; amount: number }[]>();
   for (const row of dailyRows ?? []) {
@@ -109,10 +99,7 @@ export default async function AllBookingsPage({
   const approvedOverrideReservations = new Set(
     (overrides ?? []).filter((o) => o.status === "APPROVED").map((o) => o.reservation_id as string),
   );
-  const villaGroupByVilla = new Map((villaRows ?? []).map((v) => [v.id as string, v.villa_group_id as string | null]));
-  const ruleList = (rules ?? []) as ChannelPaymentRuleRow[];
-  const assignmentList = (assignments ?? []) as TaxProfileAssignmentRow[];
-  const profileList = (profiles ?? []) as TaxProfileRow[];
+  const { villaGroupByVilla, rules: ruleList, assignments: assignmentList, profiles: profileList } = allocationContext;
 
   const totalPages = count ? Math.ceil(count / PAGE_SIZE) : 1;
 
