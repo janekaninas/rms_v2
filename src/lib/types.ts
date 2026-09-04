@@ -157,20 +157,76 @@ export interface SettlementReservationAllocation {
 
 /**
  * IMPORT_LOGIC.md §8 pt.1: the settlement file column mapping is
- * configuration, per channel — never a hardcoded per-OTA parser. Real
- * Airbnb/Booking.com/Expedia export layouts have not been supplied
- * (FINANCIAL_LOGIC.md §10 item 19, still open), so this mapping is set
- * once per channel through the Settlement Upload UI after a real file is
- * seen, not guessed from memory of "typical" OTA reports.
+ * configuration, per channel — never a hardcoded per-OTA parser. Set once
+ * per channel through the Settlement Upload UI after a real file is seen
+ * (confirmed against real Booking.com and Airbnb exports — FINANCIAL_LOGIC.md
+ * §10 item 19).
+ */
+export type SettlementFileShape = "FLAT" | "HIERARCHICAL";
+
+/**
+ * Real settlement exports use more than one date convention — Booking.com's
+ * confirmed sample uses "1 Sept 2026" (day, text month, year); Airbnb's
+ * confirmed sample uses "08/31/2026" (MM/DD/YYYY, not the DD/MM/YYYY VHP
+ * exports use). Explicit per-mapping choice, never auto-guessed, since
+ * MM/DD and DD/MM are ambiguous for any day <= 12.
+ */
+export type SettlementDateFormat = "YYYY-MM-DD" | "DD/MM/YYYY" | "MM/DD/YYYY" | "D_MMM_YYYY";
+
+export interface SettlementExtraFieldMapping {
+  /** Shown as-is in the drill-down (e.g. "Commission", "Reservation status"). */
+  label: string;
+  column: string;
+}
+
+/**
+ * `[REVISED]` Flat mode (confirmed against the real Booking.com export —
+ * every row is one settlement line, rows sharing a batch reference/date
+ * group into one batch) is unchanged in shape from the original design.
+ * Hierarchical mode is new — confirmed against the real Airbnb export,
+ * which interleaves `Type = Payout` summary rows with `Type = Reservation`
+ * detail rows; each Reservation row belongs to the nearest preceding
+ * Payout row, and the Payout row's own declared total is the batch's
+ * authoritative net settlement amount (validated, not replaced, by the
+ * sum of its reservation lines).
  */
 export interface SettlementColumnMapping {
+  mode: SettlementFileShape;
+  dateFormat: SettlementDateFormat;
+
+  // FLAT mode — required when mode = "FLAT".
   batchReference?: string;
-  batchDate: string;
+  batchDate?: string;
   lineType?: string;
-  reservationReference: string;
-  amount: string;
+  reservationReference?: string;
+  amount?: string;
   description?: string;
+  /** Optional second column, joined to `description` with " — " (e.g. Airbnb's Guest + Listing). */
+  description2?: string;
   externalLineRef?: string;
+  extraFields?: SettlementExtraFieldMapping[];
+
+  // HIERARCHICAL mode — required when mode = "HIERARCHICAL".
+  hierarchical?: {
+    typeColumn: string;
+    payoutTypeValue: string;
+    reservationTypeValue: string;
+    payout: {
+      batchDateColumn: string;
+      batchReferenceColumn: string;
+      /** The Payout row's own declared total (e.g. Airbnb's "Paid out") — the batch's authoritative net settlement amount. */
+      batchTotalColumn: string;
+      descriptionColumn?: string;
+    };
+    reservation: {
+      reservationReferenceColumn: string;
+      amountColumn: string;
+      descriptionColumn?: string;
+      description2Column?: string;
+      externalLineRefColumn?: string;
+      extraFields?: SettlementExtraFieldMapping[];
+    };
+  };
 }
 
 export interface OtaSettlementImportConfig {

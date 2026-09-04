@@ -9,6 +9,8 @@ export interface NormalizedSettlementLine {
   amount: number | null;
   description: string | null;
   externalLineRef: string | null;
+  /** Preserved-for-drill-down columns (Booking.com's Commission/VAT/etc, Airbnb's Service fee/Nights/Listing/etc) — display only, never used in any calculation. */
+  extraFields: Record<string, string> | null;
   errors: string[];
 }
 
@@ -30,6 +32,21 @@ export interface SettlementBatchPreview {
   adjustmentAmount: number;
   netAmount: number;
   isDuplicateOfExistingBatch: boolean;
+  /**
+   * Hierarchical mode only (e.g. Airbnb's Payout row "Paid out"): the
+   * batch's own declared total, kept distinct from `netAmount` (which is
+   * this same value once resolved, or the summed reservation lines if the
+   * Payout row's total was itself unparseable) so a genuine mismatch
+   * between "what the Payout row says it paid" and "what the reservation
+   * lines sum to" is visible rather than silently absorbed into a
+   * generic Adjustment figure. Null for flat-mode batches (Booking.com),
+   * which have no separate declared-total row to validate against.
+   */
+  declaredTotal: number | null;
+  /** True when `declaredTotal` and the sum of reservation-line amounts disagree beyond rounding. */
+  totalMismatch: boolean;
+  /** Rows that couldn't be attributed to any batch (e.g. a Reservation row before the first Payout row) — surfaced, never silently dropped. */
+  unassignedErrors: string[];
 }
 
 export interface SettlementImportPreview {
@@ -54,6 +71,7 @@ export interface SettlementLineDraft {
   amount: number;
   description: string | null;
   externalLineRef: string | null;
+  extraFields: Record<string, string> | null;
 }
 
 export interface SettlementBatchDraft {
@@ -61,4 +79,13 @@ export interface SettlementBatchDraft {
   batchReference: string | null;
   batchDate: string;
   lines: SettlementLineDraft[];
+  /**
+   * The batch's authoritative net settlement amount when the source
+   * already declares one (e.g. Airbnb's Payout row "Paid out" — kept
+   * even when it doesn't exactly match the sum of this batch's lines,
+   * since the declared figure is what actually hit the bank, not the
+   * line-level detail). When omitted (manual entry has no separate
+   * declared total), the commit step sums the lines instead.
+   */
+  declaredNetAmount?: number | null;
 }

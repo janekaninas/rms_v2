@@ -148,6 +148,7 @@ export interface SettlementLineDetail {
   description: string | null;
   amount: number;
   matchedStatus: string;
+  extraFields: Record<string, string> | null;
   allocatedReservation: {
     id: string;
     reservationNumber: string;
@@ -198,7 +199,7 @@ export async function loadSettlementBatchDetail(
 
   const { data: lineRows } = await supabase
     .from("ota_settlement_lines")
-    .select("id, line_type, raw_reservation_reference, description, amount, matched_status")
+    .select("id, line_type, raw_reservation_reference, description, amount, matched_status, extra_fields")
     .eq("batch_id", batchId)
     .order("created_at");
   const lines = lineRows ?? [];
@@ -266,6 +267,7 @@ export async function loadSettlementBatchDetail(
         description: l.description as string | null,
         amount: l.amount as number,
         matchedStatus: l.matched_status as string,
+        extraFields: (l.extra_fields as Record<string, string> | null) ?? null,
         allocatedReservation: r
           ? {
               id: r.id as string,

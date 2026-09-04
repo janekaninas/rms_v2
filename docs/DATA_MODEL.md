@@ -7,6 +7,8 @@
 > **v0.9 (this revision — Villa/Mapping management controls, no schema change):** §1 adds Villa lifecycle controls (Deactivate/Reactivate/safe Remove — remove is refused, with a specific reason, whenever `reservations`/`daily_revenue`/`room_villa_mapping`/`channel_payment_rules`/`revenue_targets` still reference the villa). §2 adds Room/Villa Mapping CRUD (Add/Edit/Remove, with the existing `(portfolio, match_type, raw_value)` DB-unique constraint surfaced as a friendly duplicate error) and documents that every mapping change automatically re-resolves already-imported reservations from their already-stored `room_number`/`room_type` — no re-upload, no new column, reusing the exact `resolveVilla()`/`recomputeReservations()` logic already used at import time.
 >
 > **v0.10 (this revision — Day 5, OTA Settlement built):** §7's `ota_settlement_batches`/`ota_settlement_lines`/`settlement_reservation_allocations` tables are now migrated and live, exactly as specified, plus one addition not in this section's original list: `ota_settlement_import_configs` (one row per channel, holds the column mapping IMPORT_LOGIC.md §8 requires as configuration) — needed because no real Airbnb/Booking.com/Expedia export has been supplied to hardcode a per-channel parser against (§10 item 19, still open).
+>
+> **v0.11 (this revision — real Booking.com and Airbnb settlement files confirmed):** §7 is revised now that real sample exports exist for two of the three priority channels (`FINANCIAL_LOGIC.md` §10 item 19, partially resolved). `ota_settlement_lines` gains `extra_fields` (jsonb) to preserve real per-channel columns worth keeping for drill-down. `ota_settlement_import_configs.column_mapping` gains a confirmed two-mode shape (`FLAT` for Booking.com's one-row-per-line structure, `HIERARCHICAL` for Airbnb's interleaved Payout/Reservation rows) and an explicit `dateFormat` choice, since the two real files use two different, non-ISO date conventions. Expedia's format remains unsupplied.
 
 Grain discipline (unchanged since v0.1): the reporting engine's finest grain is `Reservation × Villa × Stay Date`. Everything else — settlement, bank, expenses, owner finance — links back to that grain via foreign keys or allocation tables, never via free-text villa/owner/channel names repeated across financial tables.
 
@@ -350,6 +352,7 @@ Models "what the OTA itself says it paid," with many-to-many allocation to reser
 | matched_status | enum(`UNMATCHED`,`MATCHED`,`PARTIALLY_MATCHED`) | |
 | `[NEW]` external_line_ref | text, nullable | a line-level reference/sequence number if the export provides one |
 | `[NEW]` dedupe_hash | text, generated, nullable | deterministic hash of `(batch_id, raw_reservation_reference, amount, description)`, used when `external_line_ref` is absent |
+| `[NEW — this revision]` extra_fields | jsonb, nullable | Per-channel "preserve for drill-down" columns confirmed against real exports (Booking.com: Commission, VAT for online platform services, Payments Service Fee, Payment status, Reservation status; Airbnb: Service fee, Gross earnings, Booking date, Start/End date, Nights, Listing) — display only, never read by any calculation, key set defined by that channel's `ota_settlement_import_configs` mapping. |
 | notes | text | |
 
 **Idempotency (mandatory):** unique constraint on `(batch_id, external_line_ref)` when available, else `(batch_id, dedupe_hash)`. Unmatched lines are never discarded — always queryable with `matched_status = UNMATCHED`.
@@ -367,14 +370,20 @@ Models "what the OTA itself says it paid," with many-to-many allocation to reser
 
 ### `[NEW — Day 5, not in this section's original table list]` `ota_settlement_import_configs`
 
-Required by `IMPORT_LOGIC.md` §8 point 1's own instruction that a settlement file's column mapping is configuration, not a hardcoded per-OTA parser — and made necessary in practice because no real Airbnb/Booking.com/Expedia export has been supplied to hardcode against (§10 item 19, still open). One row per channel, set once through the Settlement Upload UI after a real file is seen there.
+Required by `IMPORT_LOGIC.md` §8 point 1's own instruction that a settlement file's column mapping is configuration, not a hardcoded per-OTA parser. One row per channel, set once through the Settlement Upload UI after a real file is seen there — confirmed against real Booking.com and Airbnb exports this revision (Expedia's remains unsupplied, `FINANCIAL_LOGIC.md` §10 item 19).
 
 | Field | Type | Notes |
 |---|---|---|
 | id | pk | |
 | channel_id | fk → channels.id, unique | one saved mapping per channel |
-| column_mapping | jsonb | `{ batchReference?, batchDate, lineType?, reservationReference, amount, description?, externalLineRef? }` → source column name |
+| column_mapping | jsonb | See shape below |
 | notes | text | |
+
+`column_mapping`'s shape has two modes, since the two confirmed real exports have genuinely different structures:
+
+- **`FLAT`** (confirmed against Booking.com — every row is one settlement line): `{ mode: "FLAT", dateFormat, batchReference?, batchDate, lineType?, reservationReference, amount, description?, description2?, externalLineRef?, extraFields? }` → each key (except `mode`/`dateFormat`/`extraFields`) is a source column name. `extraFields` is `{ label, column }[]` — the "preserve for drill-down" columns, copied verbatim into each line's `extra_fields`.
+- **`HIERARCHICAL`** (confirmed against Airbnb — `Type = Payout` batch-summary rows interleaved with `Type = Reservation` detail rows): `{ mode: "HIERARCHICAL", dateFormat, hierarchical: { typeColumn, payoutTypeValue, reservationTypeValue, payout: { batchDateColumn, batchReferenceColumn, batchTotalColumn, descriptionColumn? }, reservation: { reservationReferenceColumn, amountColumn, descriptionColumn?, description2Column?, externalLineRefColumn?, extraFields? } } }`. Each `Type = Reservation` row is attributed to the nearest preceding `Type = Payout` row (sequential, by file order — not a shared column value); that Payout row's own `batchTotalColumn` value (e.g. Airbnb's "Paid out") is the batch's authoritative net settlement amount, validated against (never silently overridden by) the sum of its reservation lines.
+- `dateFormat` is one of `YYYY-MM-DD` / `DD/MM/YYYY` / `MM/DD/YYYY` / `D_MMM_YYYY` (day, text month, year — e.g. Booking.com's "1 Sept 2026") — an explicit per-mapping choice, never auto-detected, since MM/DD and DD/MM are genuinely ambiguous for any day ≤ 12.
 
 ## 8. Booking-data reconciliation
 

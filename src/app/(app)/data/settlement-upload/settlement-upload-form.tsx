@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Channel, SettlementColumnMapping, SettlementLineType } from "@/lib/types";
+import type { Channel, SettlementColumnMapping, SettlementDateFormat, SettlementExtraFieldMapping, SettlementFileShape, SettlementLineType } from "@/lib/types";
 import type { SettlementImportPreview } from "@/lib/import/settlement-types";
 import {
   inspectSettlementFileAction,
@@ -36,17 +36,94 @@ import {
 
 const LINE_TYPES: SettlementLineType[] = ["BOOKING_PAYOUT", "ADJUSTMENT", "REFUND", "CORRECTION", "FEE", "OTHER"];
 
-const REQUIRED_FIELDS: { key: keyof SettlementColumnMapping; label: string }[] = [
-  { key: "batchDate", label: "Batch / Payout Date" },
-  { key: "reservationReference", label: "Reservation Reference" },
-  { key: "amount", label: "Amount" },
+const DATE_FORMATS: { value: SettlementDateFormat; label: string }[] = [
+  { value: "YYYY-MM-DD", label: "2026-08-31 (YYYY-MM-DD)" },
+  { value: "DD/MM/YYYY", label: "31/08/2026 (DD/MM/YYYY)" },
+  { value: "MM/DD/YYYY", label: "08/31/2026 (MM/DD/YYYY — e.g. Airbnb)" },
+  { value: "D_MMM_YYYY", label: "31 Aug 2026 (D MMM YYYY — e.g. Booking.com)" },
 ];
-const OPTIONAL_FIELDS: { key: keyof SettlementColumnMapping; label: string }[] = [
-  { key: "batchReference", label: "Batch / Payout Reference" },
-  { key: "lineType", label: "Line Type" },
-  { key: "description", label: "Description" },
-  { key: "externalLineRef", label: "External Line Ref (for idempotent re-upload)" },
-];
+
+function isMappingComplete(m: Partial<SettlementColumnMapping>): m is SettlementColumnMapping {
+  if (!m.dateFormat) return false;
+  if (m.mode === "HIERARCHICAL") {
+    const h = m.hierarchical;
+    return Boolean(
+      h?.typeColumn && h.payoutTypeValue && h.reservationTypeValue &&
+      h.payout.batchDateColumn && h.payout.batchReferenceColumn && h.payout.batchTotalColumn &&
+      h.reservation.reservationReferenceColumn && h.reservation.amountColumn,
+    );
+  }
+  return Boolean(m.batchDate && m.reservationReference && m.amount);
+}
+
+function ColumnSelect({
+  headers,
+  value,
+  onChange,
+  allowNone,
+  placeholder = "Choose column…",
+}: {
+  headers: string[];
+  value: string | undefined;
+  onChange: (v: string | undefined) => void;
+  allowNone?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <Select value={value ?? (allowNone ? "__none__" : "")} onValueChange={(v) => onChange(v === "__none__" ? undefined : v)}>
+      <SelectTrigger className="w-full">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {allowNone ? <SelectItem value="__none__">(none)</SelectItem> : null}
+        {headers.map((h) => (
+          <SelectItem key={h} value={h}>
+            {h}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ExtraFieldsEditor({
+  headers,
+  fields,
+  onChange,
+}: {
+  headers: string[];
+  fields: SettlementExtraFieldMapping[];
+  onChange: (fields: SettlementExtraFieldMapping[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>Preserve extra fields for drill-down</Label>
+      <p className="text-xs text-muted-foreground">
+        Columns from the file worth keeping alongside each line (e.g. Commission, VAT, Service fee) — display only, never used in any calculation.
+      </p>
+      {fields.map((f, i) => (
+        <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+          <Input
+            placeholder="Label (e.g. Commission)"
+            value={f.label}
+            onChange={(e) => onChange(fields.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))}
+          />
+          <ColumnSelect
+            headers={headers}
+            value={f.column}
+            onChange={(v) => onChange(fields.map((x, idx) => (idx === i ? { ...x, column: v ?? "" } : x)))}
+          />
+          <Button variant="outline" size="sm" onClick={() => onChange(fields.filter((_, idx) => idx !== i))}>
+            Remove
+          </Button>
+        </div>
+      ))}
+      <Button variant="outline" size="sm" onClick={() => onChange([...fields, { label: "", column: "" }])}>
+        + Add field to preserve
+      </Button>
+    </div>
+  );
+}
 
 function MatchBadge({ outcome }: { outcome: string }) {
   if (outcome === "MATCHED") return <Badge variant="outline" className="border-positive/30 bg-positive/10 text-positive">Matched</Badge>;
@@ -55,16 +132,36 @@ function MatchBadge({ outcome }: { outcome: string }) {
   return <Badge variant="outline" className="bg-muted text-muted-foreground">N/A</Badge>;
 }
 
+const EMPTY_MAPPING: Partial<SettlementColumnMapping> = { mode: "FLAT", dateFormat: "YYYY-MM-DD" };
+
 export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   const [channelId, setChannelId] = useState<string>(channels[0]?.id ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[] | null>(null);
-  const [mapping, setMapping] = useState<Partial<SettlementColumnMapping>>({});
+  const [mapping, setMapping] = useState<Partial<SettlementColumnMapping>>(EMPTY_MAPPING);
   const [preview, setPreview] = useState<SettlementImportPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [committedIds, setCommittedIds] = useState<string[] | null>(null);
+
+  function setMode(mode: SettlementFileShape) {
+    setMapping((m) => ({
+      mode,
+      dateFormat: m.dateFormat ?? "YYYY-MM-DD",
+      ...(mode === "HIERARCHICAL"
+        ? {
+            hierarchical: m.hierarchical ?? {
+              typeColumn: "",
+              payoutTypeValue: "Payout",
+              reservationTypeValue: "Reservation",
+              payout: { batchDateColumn: "", batchReferenceColumn: "", batchTotalColumn: "" },
+              reservation: { reservationReferenceColumn: "", amountColumn: "" },
+            },
+          }
+        : {}),
+    }));
+  }
 
   async function handleSelectFile(f: File | null) {
     setFile(f);
@@ -82,16 +179,12 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
         getSavedMappingAction(channelId),
       ]);
       setHeaders(inspected.headers);
-      if (savedMapping) setMapping(savedMapping);
+      setMapping(savedMapping ?? EMPTY_MAPPING);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }
-
-  function isMappingComplete(m: Partial<SettlementColumnMapping>): m is SettlementColumnMapping {
-    return Boolean(m.batchDate && m.reservationReference && m.amount);
   }
 
   async function handlePreview() {
@@ -140,6 +233,7 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   }
 
   const lineErrorCount = preview?.batches.reduce((s, b) => s + b.lines.filter((l) => l.line.errors.length > 0).length, 0) ?? 0;
+  const isHierarchical = mapping.mode === "HIERARCHICAL";
 
   return (
     <Tabs defaultValue="file">
@@ -160,7 +254,7 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
                   setFile(null);
                   setHeaders(null);
                   setPreview(null);
-                  setMapping({});
+                  setMapping(EMPTY_MAPPING);
                 }}
               >
                 <SelectTrigger id="channel" className="w-full">
@@ -189,9 +283,8 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
 
           {!headers && (
             <p className="mt-3 text-xs text-muted-foreground">
-              The real Airbnb/Booking.com/Expedia export layouts have not been supplied yet
-              (FINANCIAL_LOGIC.md §10 item 19) — map any CSV&apos;s columns below after picking a
-              file; nothing is hardcoded per OTA.
+              Confirmed against real Booking.com (flat, one row per line) and Airbnb (Payout +
+              Reservation rows) exports — map any CSV&apos;s columns below after picking a file.
             </p>
           )}
 
@@ -201,49 +294,212 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
         {headers ? (
           <div className="rounded-lg border bg-card p-6">
             <h3 className="mb-3 text-sm font-medium">Column mapping</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {REQUIRED_FIELDS.map((f) => (
-                <div key={f.key} className="space-y-1.5">
-                  <Label>{f.label} *</Label>
-                  <Select
-                    value={mapping[f.key] ?? ""}
-                    onValueChange={(v) => setMapping((m) => ({ ...m, [f.key]: v }))}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Choose column…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {headers.map((h) => (
-                        <SelectItem key={h} value={h}>
-                          {h}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-              {OPTIONAL_FIELDS.map((f) => (
-                <div key={f.key} className="space-y-1.5">
-                  <Label>{f.label}</Label>
-                  <Select
-                    value={mapping[f.key] ?? "__none__"}
-                    onValueChange={(v) => setMapping((m) => ({ ...m, [f.key]: v === "__none__" ? undefined : v }))}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="(none)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">(none)</SelectItem>
-                      {headers.map((h) => (
-                        <SelectItem key={h} value={h}>
-                          {h}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
+
+            <div className="mb-4 grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>File shape</Label>
+                <Select value={mapping.mode ?? "FLAT"} onValueChange={(v) => setMode(v as SettlementFileShape)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FLAT">Flat — one row per settlement line (e.g. Booking.com)</SelectItem>
+                    <SelectItem value="HIERARCHICAL">Payout + Reservation rows (e.g. Airbnb)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Date format used in this file</Label>
+                <Select value={mapping.dateFormat ?? "YYYY-MM-DD"} onValueChange={(v) => setMapping((m) => ({ ...m, dateFormat: v as SettlementDateFormat }))}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DATE_FORMATS.map((d) => (
+                      <SelectItem key={d.value} value={d.value}>
+                        {d.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
+            {!isHierarchical ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Batch / Payout Date *</Label>
+                    <ColumnSelect headers={headers} value={mapping.batchDate} onChange={(v) => setMapping((m) => ({ ...m, batchDate: v }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Reservation Reference *</Label>
+                    <ColumnSelect headers={headers} value={mapping.reservationReference} onChange={(v) => setMapping((m) => ({ ...m, reservationReference: v }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Amount *</Label>
+                    <ColumnSelect headers={headers} value={mapping.amount} onChange={(v) => setMapping((m) => ({ ...m, amount: v }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Batch / Payout Reference</Label>
+                    <ColumnSelect headers={headers} value={mapping.batchReference} onChange={(v) => setMapping((m) => ({ ...m, batchReference: v }))} allowNone />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Line Type</Label>
+                    <ColumnSelect headers={headers} value={mapping.lineType} onChange={(v) => setMapping((m) => ({ ...m, lineType: v }))} allowNone />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Description</Label>
+                    <ColumnSelect headers={headers} value={mapping.description} onChange={(v) => setMapping((m) => ({ ...m, description: v }))} allowNone />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Description (extra column, joined with &quot; — &quot;)</Label>
+                    <ColumnSelect headers={headers} value={mapping.description2} onChange={(v) => setMapping((m) => ({ ...m, description2: v }))} allowNone />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>External Line Ref (for idempotent re-upload)</Label>
+                    <ColumnSelect headers={headers} value={mapping.externalLineRef} onChange={(v) => setMapping((m) => ({ ...m, externalLineRef: v }))} allowNone />
+                  </div>
+                </div>
+                <ExtraFieldsEditor
+                  headers={headers}
+                  fields={mapping.extraFields ?? []}
+                  onChange={(fields) => setMapping((m) => ({ ...m, extraFields: fields }))}
+                />
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-3 gap-4 rounded-md border p-4">
+                  <div className="space-y-1.5">
+                    <Label>Row Type column *</Label>
+                    <ColumnSelect
+                      headers={headers}
+                      value={mapping.hierarchical?.typeColumn}
+                      onChange={(v) =>
+                        setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, typeColumn: v ?? "" } }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Value meaning &quot;Payout&quot; *</Label>
+                    <Input
+                      value={mapping.hierarchical?.payoutTypeValue ?? ""}
+                      onChange={(e) =>
+                        setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, payoutTypeValue: e.target.value } }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Value meaning &quot;Reservation&quot; *</Label>
+                    <Input
+                      value={mapping.hierarchical?.reservationTypeValue ?? ""}
+                      onChange={(e) =>
+                        setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, reservationTypeValue: e.target.value } }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-4">
+                  <h4 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Payout rows — start a new batch</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Batch / Payout Date *</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.payout.batchDateColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, payout: { ...m.hierarchical!.payout, batchDateColumn: v ?? "" } } }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Batch / Payout Reference *</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.payout.batchReferenceColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, payout: { ...m.hierarchical!.payout, batchReferenceColumn: v ?? "" } } }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Batch Total (declared &quot;Paid out&quot;) *</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.payout.batchTotalColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, payout: { ...m.hierarchical!.payout, batchTotalColumn: v ?? "" } } }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Description</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.payout.descriptionColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, payout: { ...m.hierarchical!.payout, descriptionColumn: v } } }))}
+                        allowNone
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-4">
+                  <h4 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Reservation rows — become that batch&apos;s lines</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Reservation Reference *</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.reservation.reservationReferenceColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, reservation: { ...m.hierarchical!.reservation, reservationReferenceColumn: v ?? "" } } }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Amount *</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.reservation.amountColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, reservation: { ...m.hierarchical!.reservation, amountColumn: v ?? "" } } }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Description</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.reservation.descriptionColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, reservation: { ...m.hierarchical!.reservation, descriptionColumn: v } } }))}
+                        allowNone
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Description (extra column, joined with &quot; — &quot;)</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.reservation.description2Column}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, reservation: { ...m.hierarchical!.reservation, description2Column: v } } }))}
+                        allowNone
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>External Line Ref (for idempotent re-upload)</Label>
+                      <ColumnSelect
+                        headers={headers}
+                        value={mapping.hierarchical?.reservation.externalLineRefColumn}
+                        onChange={(v) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, reservation: { ...m.hierarchical!.reservation, externalLineRefColumn: v } } }))}
+                        allowNone
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <ExtraFieldsEditor
+                      headers={headers}
+                      fields={mapping.hierarchical?.reservation.extraFields ?? []}
+                      onChange={(fields) => setMapping((m) => ({ ...m, hierarchical: { ...m.hierarchical!, reservation: { ...m.hierarchical!.reservation, extraFields: fields } } }))}
+                    />
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  Each Reservation row is attributed to the nearest preceding Payout row. The Payout row&apos;s own Batch Total is used as the batch&apos;s net settlement amount; the sum of its Reservation rows is validated against that total and any mismatch is flagged, not hidden.
+                </p>
+              </div>
+            )}
 
             <div className="mt-4 flex items-center gap-3">
               <Button onClick={handlePreview} disabled={!isMappingComplete(mapping) || loading}>
@@ -294,37 +550,49 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
                     {b.adjustmentAmount.toLocaleString()})
                   </span>
                 </div>
-                <div className="max-h-72 overflow-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Row</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Reservation Ref</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead>Match</TableHead>
-                        <TableHead>Notes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {b.lines.map((rl) => (
-                        <TableRow key={rl.line.sourceRowNumber}>
-                          <TableCell className="text-xs text-muted-foreground">{rl.line.sourceRowNumber}</TableCell>
-                          <TableCell>{rl.line.lineType}</TableCell>
-                          <TableCell>{rl.line.rawReservationReference ?? "—"}</TableCell>
-                          <TableCell className="text-right">{rl.line.amount?.toLocaleString() ?? "—"}</TableCell>
-                          <TableCell>
-                            <MatchBadge outcome={rl.matchOutcome} />
-                          </TableCell>
-                          <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
-                            {rl.line.errors.join("; ") ||
-                              (rl.matchOutcome === "AMBIGUOUS" ? `${rl.matchCandidateCount} candidates` : "")}
-                          </TableCell>
+                {b.unassignedErrors.length > 0 ? (
+                  <p className="border-b bg-red-50 px-4 py-2 text-xs text-red-600">{b.unassignedErrors.join("; ")}</p>
+                ) : null}
+                {b.totalMismatch ? (
+                  <p className="border-b bg-amber-50 px-4 py-2 text-xs text-amber-700">
+                    Declared total ({b.declaredTotal?.toLocaleString()}) does not match the sum of this batch&apos;s
+                    reservation amounts ({b.grossAmount.toLocaleString()}) — off by{" "}
+                    {Math.abs((b.declaredTotal ?? 0) - b.grossAmount).toLocaleString()}.
+                  </p>
+                ) : null}
+                {b.lines.length > 0 ? (
+                  <div className="max-h-72 overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Row</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Reservation Ref</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Match</TableHead>
+                          <TableHead>Notes</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {b.lines.map((rl) => (
+                          <TableRow key={rl.line.sourceRowNumber}>
+                            <TableCell className="text-xs text-muted-foreground">{rl.line.sourceRowNumber}</TableCell>
+                            <TableCell>{rl.line.lineType}</TableCell>
+                            <TableCell>{rl.line.rawReservationReference ?? "—"}</TableCell>
+                            <TableCell className="text-right">{rl.line.amount?.toLocaleString() ?? "—"}</TableCell>
+                            <TableCell>
+                              <MatchBadge outcome={rl.matchOutcome} />
+                            </TableCell>
+                            <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
+                              {rl.line.errors.join("; ") ||
+                                (rl.matchOutcome === "AMBIGUOUS" ? `${rl.matchCandidateCount} candidates` : "")}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : null}
               </div>
             ))}
 
@@ -379,6 +647,7 @@ function ManualEntryForm({ channels, defaultChannelId }: { channels: Channel[]; 
         amount: Number(l.amount),
         description: l.description.trim() || null,
         externalLineRef: null,
+        extraFields: null,
       }));
     if (parsedLines.length === 0) {
       setError("Add at least one line with an amount.");

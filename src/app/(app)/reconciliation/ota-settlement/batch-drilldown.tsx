@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -84,38 +84,53 @@ export function BatchDrilldown({ batchId, children }: { batchId: string; childre
                 </TableHeader>
                 <TableBody>
                   {data.lines.map((l) => (
-                    <TableRow key={l.id}>
-                      <TableCell>{l.lineType}</TableCell>
-                      <TableCell>{l.rawReservationReference ?? "—"}</TableCell>
-                      <TableCell className="text-right">{fmt(l.amount)}</TableCell>
-                      <TableCell>
-                        <MatchBadge status={l.matchedStatus} />
-                      </TableCell>
-                      <TableCell>
-                        {l.allocatedReservation ? (
-                          <ReservationDrilldown
-                            reservationId={l.allocatedReservation.id}
-                            reservationNumber={l.allocatedReservation.reservationNumber}
-                            guestName={l.allocatedReservation.guestName}
-                            channelId={l.allocatedReservation.channelId}
-                            channelName={l.allocatedReservation.channelName}
-                            villaLabel={l.allocatedReservation.villaLabel}
-                            arrivalDate={l.allocatedReservation.arrivalDate}
-                            departureDate={l.allocatedReservation.departureDate}
-                            status={l.allocatedReservation.status}
-                            nights={l.allocatedReservation.nightAllocations}
-                            hasApprovedOverride={l.allocatedReservation.hasApprovedOverride}
-                            trigger={
-                              <Button variant="outline" size="sm">
-                                {l.allocatedReservation.reservationNumber}
-                              </Button>
-                            }
-                          />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
+                    <Fragment key={l.id}>
+                      <TableRow>
+                        <TableCell>{l.lineType}</TableCell>
+                        <TableCell>{l.rawReservationReference ?? "—"}</TableCell>
+                        <TableCell className="text-right">{fmt(l.amount)}</TableCell>
+                        <TableCell>
+                          <MatchBadge status={l.matchedStatus} />
+                        </TableCell>
+                        <TableCell>
+                          {l.allocatedReservation ? (
+                            <ReservationDrilldown
+                              reservationId={l.allocatedReservation.id}
+                              reservationNumber={l.allocatedReservation.reservationNumber}
+                              guestName={l.allocatedReservation.guestName}
+                              channelId={l.allocatedReservation.channelId}
+                              channelName={l.allocatedReservation.channelName}
+                              villaLabel={l.allocatedReservation.villaLabel}
+                              arrivalDate={l.allocatedReservation.arrivalDate}
+                              departureDate={l.allocatedReservation.departureDate}
+                              status={l.allocatedReservation.status}
+                              nights={l.allocatedReservation.nightAllocations}
+                              hasApprovedOverride={l.allocatedReservation.hasApprovedOverride}
+                              trigger={
+                                <Button variant="outline" size="sm">
+                                  {l.allocatedReservation.reservationNumber}
+                                </Button>
+                              }
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      {l.extraFields ? (
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={5} className="bg-muted/20 py-2">
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              {Object.entries(l.extraFields).map(([k, v]) => (
+                                <span key={k}>
+                                  <span className="font-medium text-foreground">{k}:</span> {v}
+                                </span>
+                              ))}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>

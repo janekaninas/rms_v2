@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { parseSettlementFile } from "@/lib/import/settlement-csv";
-import { mapSettlementRows } from "@/lib/import/parse-settlement";
 import { resolveSettlementImport } from "@/lib/import/resolve-settlement";
 import { commitSettlementBatches } from "@/lib/settlement/commit";
 import type { SettlementColumnMapping } from "@/lib/types";
@@ -54,10 +53,9 @@ export async function previewSettlementAction(
   if (!file) throw new Error("No file provided.");
   const text = await file.text();
   const table = parseSettlementFile(text);
-  const normalized = mapSettlementRows(table, mapping);
 
   const supabase = await createClient();
-  return resolveSettlementImport(supabase, channelId, file.name, normalized);
+  return resolveSettlementImport(supabase, channelId, file.name, table, mapping);
 }
 
 export async function commitSettlementAction(
@@ -66,20 +64,24 @@ export async function commitSettlementAction(
 ): Promise<{ batchIds: string[] }> {
   const supabase = await createClient();
 
-  const drafts: SettlementBatchDraft[] = preview.batches.map((b) => ({
-    channelId: preview.channelId,
-    batchReference: b.batchReference,
-    batchDate: b.batchDate,
-    lines: b.lines
-      .filter((rl) => rl.line.errors.length === 0 && rl.line.amount !== null)
-      .map((rl) => ({
-        lineType: rl.line.lineType,
-        rawReservationReference: rl.line.rawReservationReference,
-        amount: rl.line.amount as number,
-        description: rl.line.description,
-        externalLineRef: rl.line.externalLineRef,
-      })),
-  }));
+  const drafts: SettlementBatchDraft[] = preview.batches
+    .filter((b) => b.lines.length > 0)
+    .map((b) => ({
+      channelId: preview.channelId,
+      batchReference: b.batchReference,
+      batchDate: b.batchDate,
+      declaredNetAmount: b.netAmount,
+      lines: b.lines
+        .filter((rl) => rl.line.errors.length === 0 && rl.line.amount !== null)
+        .map((rl) => ({
+          lineType: rl.line.lineType,
+          rawReservationReference: rl.line.rawReservationReference,
+          amount: rl.line.amount as number,
+          description: rl.line.description,
+          externalLineRef: rl.line.externalLineRef,
+          extraFields: rl.line.extraFields,
+        })),
+    }));
 
   const { data: importRow, error: importError } = await supabase
     .from("imports")

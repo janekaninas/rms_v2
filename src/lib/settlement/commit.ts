@@ -85,7 +85,12 @@ export async function commitSettlementBatches(
     const grossAmount = draft.lines
       .filter((l) => l.lineType === "BOOKING_PAYOUT")
       .reduce((sum, l) => sum + l.amount, 0);
-    const netAmount = draft.lines.reduce((sum, l) => sum + l.amount, 0);
+    const summedAmount = draft.lines.reduce((sum, l) => sum + l.amount, 0);
+    // Prefer the source's own declared total (e.g. Airbnb's Payout row
+    // "Paid out") over re-summing lines — that's the actual amount that
+    // hit the bank, kept even if it doesn't exactly match the line-level
+    // detail (the preview already surfaced any such mismatch).
+    const netAmount = draft.declaredNetAmount ?? summedAmount;
     const adjustmentAmount = netAmount - grossAmount;
 
     let batchId: string;
@@ -177,6 +182,7 @@ export async function commitSettlementBatches(
             amount: l.amount,
             external_line_ref: l.externalLineRef,
             dedupe_hash: l.dedupeHash,
+            extra_fields: l.extraFields,
           })),
         )
         .select("id, line_type, raw_reservation_reference, amount");
