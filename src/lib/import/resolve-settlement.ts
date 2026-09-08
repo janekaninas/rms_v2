@@ -60,6 +60,16 @@ export async function resolveSettlementImport(
   fileName: string,
   table: ParsedTable,
   mapping: SettlementColumnMapping,
+  /**
+   * Overrides every line's parsed batch date, for a channel whose actual
+   * payout date isn't in the file at all and isn't a fixed offset either
+   * — confirmed for Trip.com: collection happens whenever the accounting
+   * team runs monthly closing (bounded by 30 days, not a formula), so
+   * it's entered here at upload time rather than derived from any
+   * column — the same "one file, one value entered here" pattern already
+   * used for Room Revenue's stay date (IMPORT_LOGIC.md §3).
+   */
+  manualBatchDateOverride?: string,
 ): Promise<SettlementImportPreview> {
   const { data: reservationRows } = await supabase
     .from("reservations")
@@ -70,7 +80,7 @@ export async function resolveSettlementImport(
 
   return mapping.mode === "HIERARCHICAL"
     ? resolveHierarchical(supabase, channelId, fileName, table, mapping, exactByNumber, normalizedByNumber)
-    : resolveFlat(supabase, channelId, fileName, table, mapping, exactByNumber, normalizedByNumber);
+    : resolveFlat(supabase, channelId, fileName, table, mapping, exactByNumber, normalizedByNumber, manualBatchDateOverride);
 }
 
 async function resolveFlat(
@@ -81,8 +91,15 @@ async function resolveFlat(
   mapping: SettlementColumnMapping,
   exactByNumber: Map<string, ReservationCandidate[]>,
   normalizedByNumber: Map<string, ReservationCandidate[]>,
+  manualBatchDateOverride?: string,
 ): Promise<SettlementImportPreview> {
   const lines = mapSettlementRows(table, mapping);
+  if (manualBatchDateOverride) {
+    for (const l of lines) {
+      l.batchDate = manualBatchDateOverride;
+      l.errors = l.errors.filter((e) => !e.startsWith("Unparseable/missing batch date"));
+    }
+  }
   const resolvedLines = lines.map((l) => resolveLine(l, exactByNumber, normalizedByNumber));
 
   // Group into batches by batchReference when the mapping supplies one;

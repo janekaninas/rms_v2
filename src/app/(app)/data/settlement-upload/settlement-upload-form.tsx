@@ -45,7 +45,7 @@ const DATE_FORMATS: { value: SettlementDateFormat; label: string }[] = [
   { value: "MMM_D_YYYY", label: "Aug 31, 2026 (MMM D, YYYY — e.g. Booking.com, alternate)" },
 ];
 
-function isMappingComplete(m: Partial<SettlementColumnMapping>): m is SettlementColumnMapping {
+function isMappingComplete(m: Partial<SettlementColumnMapping>, manualBatchDate?: string): m is SettlementColumnMapping {
   if (!m.dateFormat) return false;
   if (m.mode === "HIERARCHICAL") {
     const h = m.hierarchical;
@@ -55,7 +55,10 @@ function isMappingComplete(m: Partial<SettlementColumnMapping>): m is Settlement
       h.reservation.reservationReferenceColumn && h.reservation.amountColumn,
     );
   }
-  return Boolean(m.batchDate && m.reservationReference && m.amount);
+  // A manually-entered batch date (Trip.com's case — no reliable date
+  // column at all) satisfies the batch-date requirement in place of a
+  // mapped column.
+  return Boolean((m.batchDate || manualBatchDate) && m.reservationReference && m.amount);
 }
 
 function ColumnSelect({
@@ -149,6 +152,7 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   const [presets, setPresets] = useState<OtaSettlementImportConfig[]>([]);
   const [presetName, setPresetName] = useState("Default");
   const [headerLocatorInput, setHeaderLocatorInput] = useState("");
+  const [manualBatchDate, setManualBatchDate] = useState("");
 
   function setMode(mode: SettlementFileShape) {
     setMapping((m) => ({
@@ -231,13 +235,13 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   }
 
   async function handlePreview() {
-    if (!file || !isMappingComplete(mapping)) return;
+    if (!file || !isMappingComplete(mapping, manualBatchDate)) return;
     setLoading(true);
     setError(null);
     try {
       const fd = new FormData();
       fd.set("file", file);
-      const p = await previewSettlementAction(channelId, mapping, fd);
+      const p = await previewSettlementAction(channelId, mapping, fd, manualBatchDate || undefined);
       setPreview(p);
     } catch (e) {
       setError((e as Error).message);
@@ -248,7 +252,7 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   }
 
   async function handleSaveMapping() {
-    if (!isMappingComplete(mapping)) return;
+    if (!isMappingComplete(mapping, manualBatchDate)) return;
     try {
       await saveMappingAction(channelId, presetName, mapping);
       const refreshed = await getSavedMappingsAction(channelId);
@@ -429,6 +433,14 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
                     />
                   </div>
                   <div className="space-y-1.5">
+                    <Label>Manual batch date (overrides the file entirely — use when the payout date is a business decision, not in the file, e.g. Trip.com&apos;s monthly-closing collection)</Label>
+                    <Input
+                      type="date"
+                      value={manualBatchDate}
+                      onChange={(e) => setManualBatchDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
                     <Label>Reservation Reference *</Label>
                     <ColumnSelect headers={headers} value={mapping.reservationReference} onChange={(v) => setMapping((m) => ({ ...m, reservationReference: v }))} />
                   </div>
@@ -598,7 +610,7 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
             )}
 
             <div className="mt-4 flex items-center gap-3">
-              <Button onClick={handlePreview} disabled={!isMappingComplete(mapping) || loading}>
+              <Button onClick={handlePreview} disabled={!isMappingComplete(mapping, manualBatchDate) || loading}>
                 {loading ? "Parsing…" : "Preview"}
               </Button>
               <Input
@@ -607,7 +619,7 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
                 value={presetName}
                 onChange={(e) => setPresetName(e.target.value)}
               />
-              <Button variant="outline" onClick={handleSaveMapping} disabled={!isMappingComplete(mapping)}>
+              <Button variant="outline" onClick={handleSaveMapping} disabled={!isMappingComplete(mapping, manualBatchDate)}>
                 Save mapping
               </Button>
               {committedIds ? (

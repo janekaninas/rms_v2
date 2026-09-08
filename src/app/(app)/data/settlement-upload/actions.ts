@@ -67,13 +67,14 @@ export async function previewSettlementAction(
   channelId: string,
   mapping: SettlementColumnMapping,
   formData: FormData,
+  manualBatchDateOverride?: string,
 ): Promise<SettlementImportPreview> {
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No file provided.");
   const table = await parseSettlementUpload(file, mapping.headerRowContains);
 
   const supabase = await createClient();
-  return resolveSettlementImport(supabase, channelId, file.name, table, mapping);
+  return resolveSettlementImport(supabase, channelId, file.name, table, mapping, manualBatchDateOverride);
 }
 
 export async function commitSettlementAction(
