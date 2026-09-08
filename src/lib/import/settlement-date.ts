@@ -49,7 +49,10 @@ export function parseSettlementDate(raw: string | undefined | null, format: Sett
   }
 
   if (format === "D_MMM_YYYY") {
-    const m = trimmed.match(/^(\d{1,2})\s+([A-Za-z]+)\.?\s+(\d{4})$/);
+    // Space-separated ("31 Aug 2026", confirmed on Booking.com) and
+    // hyphen-separated ("6-Jul-2026", confirmed on Trip.com) both occur
+    // in real exports of this same day-month-year shape.
+    const m = trimmed.match(/^(\d{1,2})[\s-]+([A-Za-z]+)\.?[\s-]+(\d{4})$/);
     if (!m) return null;
     const [, d, monRaw, y] = m;
     const month = MONTHS[monRaw.toLowerCase()];
@@ -57,5 +60,27 @@ export function parseSettlementDate(raw: string | undefined | null, format: Sett
     return `${y}-${String(month).padStart(2, "0")}-${d.padStart(2, "0")}`;
   }
 
+  if (format === "MMM_D_YYYY") {
+    // e.g. "Sep 1, 2026" — confirmed on a second real Booking.com export
+    // (its first confirmed sample instead used D_MMM_YYYY, "1 Sept 2026" —
+    // Booking.com's own date convention isn't consistent across exports).
+    const m = trimmed.match(/^([A-Za-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+    if (!m) return null;
+    const [, monRaw, d, y] = m;
+    const month = MONTHS[monRaw.toLowerCase()];
+    if (!month) return null;
+    return `${y}-${String(month).padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
   return null;
+}
+
+/** Adds `days` calendar days to an ISO `YYYY-MM-DD` date. Used for a
+ * channel with no exported payout date at all (e.g. Agoda, confirmed by
+ * Jane: claimable 30 days after the stay's check-out date). */
+export function addDaysToIsoDate(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }

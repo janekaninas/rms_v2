@@ -1,29 +1,25 @@
 import Papa from "papaparse";
 import { stripBom } from "./parse-utils";
 import type { ParsedTable } from "./csv";
+import { rawRowsToTable } from "./settlement-table";
 
 /**
- * A settlement export's real layout is unknown (FINANCIAL_LOGIC.md §10
- * item 19, still open — no real Airbnb/Booking.com/Expedia sample has
- * been supplied). Unlike `parseVhpCsv`, this makes no assumption about a
- * required header cell or a letterhead preamble: it treats the first
- * non-blank line as the header row and lets Papa Parse auto-detect the
- * delimiter. If a real export turns out to need VHP-style preamble
- * skipping, this is the one place to add it — never per-channel.
+ * A settlement export's real layout varies by channel (confirmed against
+ * real Booking.com/Airbnb/Trip.com exports — FINANCIAL_LOGIC.md §10 item
+ * 19). This makes no channel-specific assumption itself: it parses the
+ * whole file into raw rows (letting Papa Parse auto-detect the
+ * delimiter) and hands off to `rawRowsToTable`, which locates the real
+ * header row — row 0 by default, or via `headerRowContains` for a file
+ * with a preamble.
  */
-export function parseSettlementFile(fileText: string): ParsedTable {
+export function parseSettlementFile(fileText: string, headerRowContains?: string): ParsedTable {
   const text = stripBom(fileText);
 
-  const result = Papa.parse<Record<string, string>>(text, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim(),
+  const result = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: false,
   });
 
-  const headers = result.meta.fields ?? [];
-  const rows = result.data.filter((row) =>
-    Object.values(row).some((v) => v !== undefined && v !== null && String(v).trim() !== ""),
-  );
-
-  return { headers, rows };
+  const rawRows = (result.data ?? []).map((r) => r.map((c) => (c ?? "").trim()));
+  return rawRowsToTable(rawRows, headerRowContains);
 }

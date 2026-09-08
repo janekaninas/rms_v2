@@ -23,12 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Channel, SettlementColumnMapping, SettlementDateFormat, SettlementExtraFieldMapping, SettlementFileShape, SettlementLineType } from "@/lib/types";
+import type { Channel, OtaSettlementImportConfig, SettlementColumnMapping, SettlementDateFormat, SettlementExtraFieldMapping, SettlementFileShape, SettlementLineType } from "@/lib/types";
 import type { SettlementImportPreview } from "@/lib/import/settlement-types";
 import {
   inspectSettlementFileAction,
-  getSavedMappingAction,
+  getSavedMappingsAction,
   saveMappingAction,
+  deleteMappingPresetAction,
   previewSettlementAction,
   commitSettlementAction,
   commitManualEntryAction,
@@ -41,6 +42,7 @@ const DATE_FORMATS: { value: SettlementDateFormat; label: string }[] = [
   { value: "DD/MM/YYYY", label: "31/08/2026 (DD/MM/YYYY)" },
   { value: "MM/DD/YYYY", label: "08/31/2026 (MM/DD/YYYY — e.g. Airbnb)" },
   { value: "D_MMM_YYYY", label: "31 Aug 2026 (D MMM YYYY — e.g. Booking.com)" },
+  { value: "MMM_D_YYYY", label: "Aug 31, 2026 (MMM D, YYYY — e.g. Booking.com, alternate)" },
 ];
 
 function isMappingComplete(m: Partial<SettlementColumnMapping>): m is SettlementColumnMapping {
@@ -144,6 +146,9 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [committedIds, setCommittedIds] = useState<string[] | null>(null);
+  const [presets, setPresets] = useState<OtaSettlementImportConfig[]>([]);
+  const [presetName, setPresetName] = useState("Default");
+  const [headerLocatorInput, setHeaderLocatorInput] = useState("");
 
   function setMode(mode: SettlementFileShape) {
     setMapping((m) => ({
@@ -169,17 +174,55 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
     setPreview(null);
     setCommittedIds(null);
     setError(null);
+    setHeaderLocatorInput("");
     if (!f || !channelId) return;
     setLoading(true);
     try {
       const fd = new FormData();
       fd.set("file", f);
-      const [inspected, savedMapping] = await Promise.all([
+      const [inspected, savedPresets] = await Promise.all([
         inspectSettlementFileAction(fd),
-        getSavedMappingAction(channelId),
+        getSavedMappingsAction(channelId),
       ]);
       setHeaders(inspected.headers);
-      setMapping(savedMapping ?? EMPTY_MAPPING);
+      setPresets(savedPresets);
+      // Auto-load only when there's exactly one saved preset — a channel
+      // with multiple (e.g. Airbnb's English/Indonesian presets) needs an
+      // explicit pick, since silently guessing which one applies to this
+      // file would risk mis-mapping it.
+      if (savedPresets.length === 1) {
+        setMapping(savedPresets[0].column_mapping);
+        setPresetName(savedPresets[0].preset_name);
+      } else {
+        setMapping(EMPTY_MAPPING);
+        setPresetName("Default");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function loadPreset(name: string) {
+    const p = presets.find((x) => x.preset_name === name);
+    if (p) {
+      setMapping(p.column_mapping);
+      setPresetName(p.preset_name);
+      setHeaderLocatorInput(p.column_mapping.headerRowContains ?? "");
+    }
+  }
+
+  async function handleRedetectHeaders() {
+    if (!file) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const inspected = await inspectSettlementFileAction(fd, headerLocatorInput || undefined);
+      setHeaders(inspected.headers);
+      setMapping((m) => ({ ...m, headerRowContains: headerLocatorInput || undefined }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -207,8 +250,22 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   async function handleSaveMapping() {
     if (!isMappingComplete(mapping)) return;
     try {
-      await saveMappingAction(channelId, mapping);
-      toast.success("Mapping saved for this channel — reused automatically next time.");
+      await saveMappingAction(channelId, presetName, mapping);
+      const refreshed = await getSavedMappingsAction(channelId);
+      setPresets(refreshed);
+      toast.success(`Mapping saved as "${presetName}" for this channel — reusable next time.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function handleDeletePreset(name: string) {
+    if (!confirm(`Remove the saved mapping "${name}"?`)) return;
+    try {
+      await deleteMappingPresetAction(channelId, name);
+      const refreshed = await getSavedMappingsAction(channelId);
+      setPresets(refreshed);
+      toast.success("Mapping removed.");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -270,21 +327,37 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="file">Settlement File (CSV)</Label>
+              <Label htmlFor="file">Settlement File (CSV or Excel)</Label>
               <input
                 id="file"
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 onChange={(e) => handleSelectFile(e.target.files?.[0] ?? null)}
                 className="block w-full text-sm text-foreground file:mr-3 file:rounded-md file:border file:bg-secondary file:px-3 file:py-1.5 file:text-sm"
               />
             </div>
           </div>
 
+          {presets.length > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Saved mappings for this channel:</span>
+              {presets.map((p) => (
+                <span key={p.preset_name} className="inline-flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs">
+                  <button type="button" className="font-medium hover:underline" onClick={() => loadPreset(p.preset_name)}>
+                    {p.preset_name}
+                  </button>
+                  <button type="button" className="text-muted-foreground hover:text-red-600" onClick={() => handleDeletePreset(p.preset_name)}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+
           {!headers && (
             <p className="mt-3 text-xs text-muted-foreground">
-              Confirmed against real Booking.com (flat, one row per line) and Airbnb (Payout +
-              Reservation rows) exports — map any CSV&apos;s columns below after picking a file.
+              Confirmed against real Booking.com, Airbnb, Agoda, and Tiket.com exports — map any
+              file&apos;s columns below after picking a file.
             </p>
           )}
 
@@ -325,12 +398,35 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
               </div>
             </div>
 
+            <div className="mb-4 grid grid-cols-[1fr_auto] items-end gap-4">
+              <div className="space-y-1.5">
+                <Label>Header row locator (only if this file has a preamble before its real columns)</Label>
+                <Input
+                  placeholder='e.g. "Reservation no." — leave blank if the header is the first row'
+                  value={headerLocatorInput}
+                  onChange={(e) => setHeaderLocatorInput(e.target.value)}
+                />
+              </div>
+              <Button variant="outline" onClick={handleRedetectHeaders} disabled={loading}>
+                Re-detect columns
+              </Button>
+            </div>
+
             {!isHierarchical ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label>Batch / Payout Date *</Label>
                     <ColumnSelect headers={headers} value={mapping.batchDate} onChange={(v) => setMapping((m) => ({ ...m, batchDate: v }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Days to add to that date (if the file has no real payout date — e.g. Agoda: 30)</Label>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={mapping.batchDateOffsetDays ?? ""}
+                      onChange={(e) => setMapping((m) => ({ ...m, batchDateOffsetDays: e.target.value ? Number(e.target.value) : undefined }))}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Reservation Reference *</Label>
@@ -505,8 +601,14 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
               <Button onClick={handlePreview} disabled={!isMappingComplete(mapping) || loading}>
                 {loading ? "Parsing…" : "Preview"}
               </Button>
+              <Input
+                className="w-40"
+                placeholder="Preset name"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+              />
               <Button variant="outline" onClick={handleSaveMapping} disabled={!isMappingComplete(mapping)}>
-                Save mapping for this channel
+                Save mapping
               </Button>
               {committedIds ? (
                 <span className="text-sm text-positive">

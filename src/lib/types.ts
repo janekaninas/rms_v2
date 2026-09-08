@@ -166,12 +166,13 @@ export type SettlementFileShape = "FLAT" | "HIERARCHICAL";
 
 /**
  * Real settlement exports use more than one date convention — Booking.com's
- * confirmed sample uses "1 Sept 2026" (day, text month, year); Airbnb's
+ * confirmed samples use both "1 Sept 2026" (day, text month, year) and
+ * "Sep 1, 2026" (text month, day, year) across different exports; Airbnb's
  * confirmed sample uses "08/31/2026" (MM/DD/YYYY, not the DD/MM/YYYY VHP
  * exports use). Explicit per-mapping choice, never auto-guessed, since
  * MM/DD and DD/MM are ambiguous for any day <= 12.
  */
-export type SettlementDateFormat = "YYYY-MM-DD" | "DD/MM/YYYY" | "MM/DD/YYYY" | "D_MMM_YYYY";
+export type SettlementDateFormat = "YYYY-MM-DD" | "DD/MM/YYYY" | "MM/DD/YYYY" | "D_MMM_YYYY" | "MMM_D_YYYY";
 
 export interface SettlementExtraFieldMapping {
   /** Shown as-is in the drill-down (e.g. "Commission", "Reservation status"). */
@@ -194,9 +195,29 @@ export interface SettlementColumnMapping {
   mode: SettlementFileShape;
   dateFormat: SettlementDateFormat;
 
+  /**
+   * For a file with a preamble before the real header row (e.g. Trip.com's
+   * "Prepay statement" title + a "Total prepaid amount ..." line before
+   * its actual "Reservation type, Reservation no., ..." header) — text
+   * that appears in the real header row, used to locate it. Data rows
+   * stop at the first fully-blank row after that (so Trip.com's separate
+   * "Campaigns" table below the reservation table is never read as
+   * reservation data). Leave unset when the header is the file's first
+   * row (every other confirmed channel).
+   */
+  headerRowContains?: string;
+
   // FLAT mode — required when mode = "FLAT".
   batchReference?: string;
   batchDate?: string;
+  /**
+   * Days to add to the parsed `batchDate` (e.g. Agoda: no payout date is
+   * exported at all, but Jane confirmed the claimable date is 30 days
+   * after the stay — so `batchDate` maps to Check-out date with
+   * `batchDateOffsetDays: 30`). Omit/0 for a column that's already the
+   * real payout date.
+   */
+  batchDateOffsetDays?: number;
   lineType?: string;
   reservationReference?: string;
   amount?: string;
@@ -229,9 +250,18 @@ export interface SettlementColumnMapping {
   };
 }
 
+/**
+ * A channel can need more than one saved mapping — confirmed by Jane:
+ * Airbnb exports in either English or Indonesian depending on account
+ * language settings, and Booking.com's own exports have been seen using
+ * two different date conventions. `preset_name` distinguishes them
+ * (unique per channel); a channel with only one real format just uses
+ * "Default".
+ */
 export interface OtaSettlementImportConfig {
   id: string;
   channel_id: string;
+  preset_name: string;
   column_mapping: SettlementColumnMapping;
   notes: string | null;
 }

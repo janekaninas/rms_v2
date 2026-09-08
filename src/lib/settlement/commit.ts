@@ -163,12 +163,23 @@ export async function commitSettlementBatches(
     const existingRefs = new Set((existingLineRows ?? []).map((l) => l.external_line_ref).filter(Boolean));
     const existingHashes = new Set((existingLineRows ?? []).map((l) => l.dedupe_hash).filter(Boolean));
 
-    const newLinePayloads = draft.lines
-      .map((l) => ({
-        ...l,
-        dedupeHash: l.externalLineRef ? null : lineDedupeHash(l.rawReservationReference, l.amount, l.description),
-      }))
-      .filter((l) => (l.externalLineRef ? !existingRefs.has(l.externalLineRef) : !existingHashes.has(l.dedupeHash)));
+    // Real settlement files can carry two genuinely-identical-looking
+    // lines within the same batch (confirmed against Agoda: two separate
+    // $0 transaction rows for the same reservation/description) — these
+    // hash identically, so the DB's (batch_id, dedupe_hash) constraint
+    // would reject a bulk insert containing both. Collapse to the last
+    // occurrence within this commit, same precedent as the VHP import
+    // path's within-file duplicate handling (src/lib/import/commit.ts).
+    const byIdentity = new Map<string, (typeof draft.lines)[number] & { dedupeHash: string | null }>();
+    for (const l of draft.lines) {
+      const dedupeHash = l.externalLineRef ? null : lineDedupeHash(l.rawReservationReference, l.amount, l.description);
+      const identity = l.externalLineRef ?? `hash:${dedupeHash}`;
+      byIdentity.set(identity, { ...l, dedupeHash });
+    }
+
+    const newLinePayloads = [...byIdentity.values()].filter((l) =>
+      l.externalLineRef ? !existingRefs.has(l.externalLineRef) : !existingHashes.has(l.dedupeHash),
+    );
 
     if (newLinePayloads.length > 0) {
       const { data: insertedLines, error } = await supabase

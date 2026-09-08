@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { parseSettlementFile } from "@/lib/import/settlement-csv";
+import { parseSettlementUpload } from "@/lib/import/settlement-excel";
 import { resolveSettlementImport } from "@/lib/import/resolve-settlement";
 import { commitSettlementBatches } from "@/lib/settlement/commit";
-import type { SettlementColumnMapping } from "@/lib/types";
+import type { OtaSettlementImportConfig, SettlementColumnMapping } from "@/lib/types";
 import type { SettlementImportPreview, SettlementBatchDraft } from "@/lib/import/settlement-types";
 
 function revalidateSettlement() {
@@ -15,32 +15,51 @@ function revalidateSettlement() {
 
 export async function inspectSettlementFileAction(
   formData: FormData,
+  headerRowContains?: string,
 ): Promise<{ headers: string[]; sampleRows: Record<string, string>[] }> {
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No file provided.");
-  const text = await file.text();
-  const table = parseSettlementFile(text);
+  const table = await parseSettlementUpload(file, headerRowContains);
   if (table.headers.length === 0) {
-    throw new Error("Could not find a header row in this file. Confirm it's a CSV with a header row.");
+    throw new Error("Could not find a header row in this file.");
   }
   return { headers: table.headers, sampleRows: table.rows.slice(0, 5) };
 }
 
-export async function getSavedMappingAction(channelId: string): Promise<SettlementColumnMapping | null> {
+/** All saved presets for a channel (a channel can have more than one —
+ * e.g. Airbnb's English and Indonesian exports, confirmed by Jane). */
+export async function getSavedMappingsAction(channelId: string): Promise<OtaSettlementImportConfig[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("ota_settlement_import_configs")
-    .select("column_mapping")
+    .select("*")
     .eq("channel_id", channelId)
-    .maybeSingle();
-  return (data?.column_mapping as SettlementColumnMapping | undefined) ?? null;
+    .order("preset_name");
+  return (data as OtaSettlementImportConfig[] | null) ?? [];
 }
 
-export async function saveMappingAction(channelId: string, mapping: SettlementColumnMapping): Promise<void> {
+export async function saveMappingAction(
+  channelId: string,
+  presetName: string,
+  mapping: SettlementColumnMapping,
+): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase
     .from("ota_settlement_import_configs")
-    .upsert({ channel_id: channelId, column_mapping: mapping }, { onConflict: "channel_id" });
+    .upsert(
+      { channel_id: channelId, preset_name: presetName || "Default", column_mapping: mapping },
+      { onConflict: "channel_id,preset_name" },
+    );
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteMappingPresetAction(channelId: string, presetName: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("ota_settlement_import_configs")
+    .delete()
+    .eq("channel_id", channelId)
+    .eq("preset_name", presetName);
   if (error) throw new Error(error.message);
 }
 
@@ -51,8 +70,7 @@ export async function previewSettlementAction(
 ): Promise<SettlementImportPreview> {
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No file provided.");
-  const text = await file.text();
-  const table = parseSettlementFile(text);
+  const table = await parseSettlementUpload(file, mapping.headerRowContains);
 
   const supabase = await createClient();
   return resolveSettlementImport(supabase, channelId, file.name, table, mapping);

@@ -1,6 +1,6 @@
 import type { ParsedTable } from "./csv";
 import { parseLocaleNumber, cleanText } from "./parse-utils";
-import { parseSettlementDate } from "./settlement-date";
+import { parseSettlementDate, addDaysToIsoDate } from "./settlement-date";
 import type { SettlementColumnMapping, SettlementExtraFieldMapping } from "@/lib/types";
 import type { NormalizedSettlementLine } from "./settlement-types";
 
@@ -43,7 +43,8 @@ export function mapSettlementRows(
   return table.rows.map((row, i) => {
     const errors: string[] = [];
 
-    const batchDate = mapping.batchDate ? parseSettlementDate(row[mapping.batchDate], mapping.dateFormat) : null;
+    let batchDate = mapping.batchDate ? parseSettlementDate(row[mapping.batchDate], mapping.dateFormat) : null;
+    if (batchDate && mapping.batchDateOffsetDays) batchDate = addDaysToIsoDate(batchDate, mapping.batchDateOffsetDays);
     if (!batchDate) errors.push(`Unparseable/missing batch date ("${mapping.batchDate}" column)`);
 
     const amount = mapping.amount ? parseLocaleNumber(row[mapping.amount]) : null;
