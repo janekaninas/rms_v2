@@ -106,7 +106,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Booking Reconciliation", day: "Day 7", icon: ListChecks },
       { label: "OTA Settlement", href: "/reconciliation/ota-settlement", icon: Landmark },
-      { label: "Bank Reconciliation", day: "Day 6", icon: Building2 },
+      { label: "Bank Reconciliation", href: "/reconciliation/bank", icon: Building2 },
     ],
   },
   { label: "Operations", items: [{ label: "Expenses", day: "Phase 2", icon: Receipt }] },
@@ -123,7 +123,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Daily Upload", href: "/data/upload", icon: Upload },
       { label: "Settlement Upload", href: "/data/settlement-upload", icon: CloudUpload },
-      { label: "Bank Mutation Upload", day: "Day 6", icon: FileUp },
+      { label: "Bank Mutation Upload", href: "/data/bank-mutation-upload", icon: FileUp },
       { label: "Import History", href: "/data/import-history", icon: Clock },
     ],
   },

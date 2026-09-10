@@ -273,3 +273,62 @@ export const BRACHA_CUTOVER_DATE = "2026-08-01";
 export const BRACHA_LEGACY_PROFILE_NAME = "bracha_legacy_21pct";
 export const STANDARD_TAX_PROFILE_NAME = "standard";
 export const BRACHA_GROUP_NAME = "Bracha";
+
+// ---------------------------------------------------------------------
+// Day 6 — Bank Reconciliation (DATA_MODEL.md §6)
+// ---------------------------------------------------------------------
+
+export type BankTransactionStatus = "UNMATCHED" | "PARTIALLY_MATCHED" | "MATCHED" | "NEEDS_REVIEW";
+export type BankMatchMethod = "EXACT_AMOUNT" | "REFERENCE_MATCH" | "AMOUNT_AND_DATE_PROXIMITY" | "MANUAL";
+
+/**
+ * Report-level computed label combining settlement and bank state
+ * (REPORTING_LOGIC.md §11) — not a stored column, same multi-dimensional
+ * status principle as DATA_MODEL.md §11.
+ */
+export type BankReconciliationStatus =
+  | "AWAITING_SETTLEMENT"
+  | "AWAITING_BANK"
+  | "MATCHED"
+  | "PARTIAL"
+  | "VARIANCE"
+  | "UNMATCHED"
+  | "NEEDS_REVIEW";
+
+export interface BankAccount {
+  id: string;
+  bank_name: string;
+  account_name: string;
+  account_number_masked: string;
+  currency: string;
+  business_unit_id: string | null;
+  notes: string | null;
+}
+
+export interface BankTransaction {
+  id: string;
+  bank_account_id: string;
+  transaction_date: string;
+  value_date: string | null;
+  description: string;
+  reference: string | null;
+  debit: number | null;
+  credit: number | null;
+  amount: number;
+  running_balance: number | null;
+  reconciliation_status: BankTransactionStatus;
+  external_line_ref: string | null;
+  notes: string | null;
+}
+
+export interface SettlementBankAllocation {
+  id: string;
+  bank_transaction_id: string;
+  settlement_batch_id: string | null;
+  settlement_line_id: string | null;
+  allocated_amount: number;
+  match_method: BankMatchMethod;
+  match_confidence: number | null;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+}
