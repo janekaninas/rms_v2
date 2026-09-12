@@ -5,10 +5,7 @@ import type { BankMatchMethod } from "@/lib/types";
  * §11, v1: no fuzzy/ML matching). Priority order, confirmed:
  * (1) exact payout/reference number match, (2) exact amount match,
  * (3) channel + date-proximity + amount-tolerance, (4) description/text
- * similarity. **Auto-resolve to MATCHED only for an unambiguous
- * exact-reference-and-amount case** — every other case, including a
- * lone exact-amount match, is a suggestion for manual confirmation, never
- * silently committed.
+ * similarity.
  *
  * BCA's own confirmed real export carries no separate reference/sequence
  * *column* at all (bank-mutation-docx.ts) — but real BCA descriptions were
@@ -18,8 +15,19 @@ import type { BankMatchMethod } from "@/lib/types";
  * Tier (1) therefore also checks whether a batch's own reference appears
  * as a substring of the transaction description — this is still a
  * genuine reference match, just extracted from free text rather than a
- * dedicated column; a reference long/specific enough to require a
- * minimum length is not something that plausibly appears by coincidence.
+ * dedicated column.
+ *
+ * **`[Confirmed rule — Jane, this revision]` Auto-resolve also covers an
+ * unambiguous exact-amount match**, not only exact-reference-and-amount —
+ * confirmed necessary because some channels (e.g. Trip.com) have no batch
+ * reference at all to embed or compare (their settlement mapping has no
+ * batchReference column), so the reference tier can structurally never
+ * fire for them; requiring a reference would mean those channels never
+ * auto-resolve no matter how obviously correct the match is. "Unambiguous"
+ * here means exactly one eligible settlement batch anywhere in the system
+ * shares that exact amount — if two or more batches tie on the same
+ * amount, none of them auto-resolve, since picking one over the other
+ * would be a real guess, not a determination.
  */
 
 export interface CandidateBatch {
@@ -110,7 +118,9 @@ export function suggestCandidatesForTransaction(
       continue;
     }
 
-    // Tier 2: exact amount match.
+    // Tier 2: exact amount match. autoResolvable is filled in below, once
+    // every candidate has been considered and we know whether this amount
+    // is actually unique across all eligible batches.
     if (amountDiff <= AMOUNT_TOLERANCE) {
       suggestions.push({
         settlementBatchId: c.id,
@@ -120,10 +130,6 @@ export function suggestCandidatesForTransaction(
         netSettlementAmount: c.netSettlementAmount,
         matchMethod: "EXACT_AMOUNT",
         confidence: 0.9,
-        // Never true here even though the amount is exact — the confirmed
-        // rule is exact REFERENCE *and* amount, not amount alone (BCA
-        // provides no reference at all, so this tier never auto-resolves
-        // for BCA transactions).
         autoResolvable: false,
       });
       continue;
@@ -154,6 +160,17 @@ export function suggestCandidatesForTransaction(
       confidence: Math.min(confidence, 0.8),
       autoResolvable: false,
     });
+  }
+
+  // An exact-amount match auto-resolves only when it's the sole one found
+  // — if a reference match (embedded or column) already fired above, that
+  // one wins and no exact-amount suggestion needs to carry autoResolvable
+  // at all. Two or more exact-amount ties are a genuine ambiguity, left
+  // for manual confirmation like any other non-unanimous case.
+  const hasAutoResolvableReferenceMatch = suggestions.some((s) => s.matchMethod === "REFERENCE_MATCH" && s.autoResolvable);
+  const exactAmountMatches = suggestions.filter((s) => s.matchMethod === "EXACT_AMOUNT");
+  if (!hasAutoResolvableReferenceMatch && exactAmountMatches.length === 1) {
+    exactAmountMatches[0].autoResolvable = true;
   }
 
   return suggestions.sort((a, b) => b.confidence - a.confidence);

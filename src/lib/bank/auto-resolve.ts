@@ -4,12 +4,15 @@ import { confirmBankAllocation } from "./allocate";
 
 /**
  * Auto-resolves every currently-unallocated bank credit transaction that
- * has exactly one unambiguous exact-reference-and-amount candidate
- * (REPORTING_LOGIC.md §11's only auto-resolve tier) — never a lone
- * exact-amount match, never a channel/date-proximity guess. `confirmed_by`
- * is left null for these (DATA_MODEL.md §6: required only outside the
- * unambiguous tier), so they remain visibly distinguishable from a human
- * confirmation while still being a real, non-reversible-by-accident match.
+ * has exactly one unambiguous candidate — either an exact-reference-and-
+ * amount match, or (confirmed necessary for channels with no batch
+ * reference at all, e.g. Trip.com) a lone exact-amount match with no
+ * competing batch at that same amount. Never a channel/date-proximity
+ * guess, and never an exact-amount match when two or more batches tie on
+ * that amount — that stays manual, since picking one would be a guess.
+ * `confirmed_by` is left null for these (DATA_MODEL.md §6: required only
+ * outside the unambiguous tier), so they remain visibly distinguishable
+ * from a human confirmation while still being a real match.
  *
  * Called after every bank-mutation and settlement commit (new data on
  * either side can newly complete a pair), and also exposed as a manual
@@ -71,7 +74,7 @@ export async function autoResolveExactMatches(supabase: SupabaseClient): Promise
       bankTransactionId: t.id as string,
       settlementBatchId: winner.settlementBatchId,
       allocatedAmount: t.amount as number,
-      matchMethod: "REFERENCE_MATCH",
+      matchMethod: winner.matchMethod,
       confirmedBy: null,
     });
     // Keep this run's own view consistent so a later transaction in the

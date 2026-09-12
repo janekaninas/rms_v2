@@ -47,13 +47,23 @@ export default async function BankReconciliationPage({
     supabase.from("channels").select("*").eq("active", true).order("display_name").then(unwrap<Channel[]>),
   ]);
 
-  const { rows } = await loadBankReconciliationRows(supabase, {
+  const { rows: allRows } = await loadBankReconciliationRows(supabase, {
     bankAccountId: params.account || undefined,
     channelId: params.channel || undefined,
     fromDate: params.from || undefined,
     toDate: params.to || undefined,
     status: (params.status as BankReconciliationStatus) || undefined,
   });
+
+  // A bare bank transaction with no plausible settlement counterpart at
+  // all (no reference, no amount match, no channel keyword hit) is mostly
+  // unrelated banking activity, not a reconciliation exception worth
+  // seeing on every visit — hidden by default (Jane's explicit
+  // instruction), but never actually discarded: still fully computed
+  // above and one click away via the Status filter, so nothing silently
+  // disappears (CLAUDE.md rule 11).
+  const hiddenByDefault = !params.status ? allRows.filter((r) => r.status === "UNMATCHED").length : 0;
+  const rows = params.status ? allRows : allRows.filter((r) => r.status !== "UNMATCHED");
 
   return (
     <div>
@@ -63,6 +73,13 @@ export default async function BankReconciliationPage({
         <BankReconciliationFiltersBar bankAccounts={bankAccounts ?? []} channels={channels ?? []} />
         <AutoResolveButton />
       </div>
+
+      {hiddenByDefault > 0 ? (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {hiddenByDefault} unmatched bank transaction(s) with no plausible settlement counterpart are hidden — select
+          &quot;UNMATCHED&quot; under Status to view them.
+        </p>
+      ) : null}
 
       <div className="rounded-lg border bg-card">
         <Table>
