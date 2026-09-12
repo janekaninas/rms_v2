@@ -58,3 +58,16 @@ export function cleanText(raw: string | undefined | null): string {
   if (raw === undefined || raw === null) return "";
   return raw.trim().replace(/\s+/g, " ");
 }
+
+/**
+ * A VHP "Voucher No"/"Voucher" column value (the OTA's own booking
+ * reference, e.g. Booking.com's settlement "Booking number") — real
+ * exports carry a trailing `'` (an Excel force-text marker that leaked
+ * into the CSV export, confirmed against a real "Reservation By Creation
+ * Date" sample). Stripped here rather than left in, since the raw
+ * OTA settlement reference this gets matched against never has it.
+ */
+export function cleanVoucherNumber(raw: string | undefined | null): string | null {
+  const cleaned = cleanText(raw).replace(/^'+|'+$/g, "").trim();
+  return cleaned === "" ? null : cleaned;
+}

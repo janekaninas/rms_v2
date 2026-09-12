@@ -1,6 +1,6 @@
 import { ParsedTable } from "./csv";
 import { NormalizedReservationRow } from "./types";
-import { cleanText, parseFlexibleDate, parseLocaleNumber } from "./parse-utils";
+import { cleanText, cleanVoucherNumber, parseFlexibleDate, parseLocaleNumber } from "./parse-utils";
 
 /**
  * New Bookings (VHP "Reservation By Creation Date" export).
@@ -20,6 +20,11 @@ export function mapBookingsRows(table: ParsedTable): NormalizedReservationRow[] 
 
     const reservationNumber = cleanText(raw["Reservation Number"]);
     if (!reservationNumber) errors.push("Missing Reservation Number");
+
+    // The OTA's own booking reference — confirmed against a real Booking.com
+    // settlement file that this, not Reservation Number, is what an OTA
+    // settlement line's reference column actually matches.
+    const voucherNumber = cleanVoucherNumber(raw["Voucher No"]);
 
     const arrivalDate = parseFlexibleDate(raw["Arrival"]);
     if (!arrivalDate) errors.push(`Unparseable Arrival date: "${raw["Arrival"]}"`);
@@ -50,6 +55,7 @@ export function mapBookingsRows(table: ParsedTable): NormalizedReservationRow[] 
     return {
       sourceRowNumber: i + 1,
       reservationNumber,
+      voucherNumber,
       channelRawName: channelRawNameCleaned === "" ? null : channelRawNameCleaned,
       roomNumber: cleanText(raw["Room Number"]) || null,
       roomType: cleanText(raw["Room Type"]) || null,

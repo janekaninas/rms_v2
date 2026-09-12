@@ -33,6 +33,7 @@ interface ExistingReservation {
   departure_date: string;
   system_gross_revenue: number | null;
   booking_date: string | null;
+  voucher_number: string | null;
 }
 
 function resolveChannel(
@@ -101,7 +102,7 @@ export async function resolveRows(
     supabase.from("room_villa_mapping").select("match_type, raw_value, villa_id").eq("portfolio", "AASHA"),
     supabase
       .from("reservations")
-      .select("id, reservation_number, status, villa_id, channel_id, room_number, arrival_date, departure_date, system_gross_revenue, booking_date")
+      .select("id, reservation_number, status, villa_id, channel_id, room_number, arrival_date, departure_date, system_gross_revenue, booking_date, voucher_number")
       .eq("portfolio", "AASHA"),
   ]);
 
@@ -126,6 +127,7 @@ export async function resolveRows(
         changeFlags: [],
         existingReservationId: null,
         existingBookingDate: null,
+        existingVoucherNumber: null,
       };
     }
 
@@ -137,10 +139,18 @@ export async function resolveRows(
     let action: ResolvedRow["action"];
     const changeFlags: string[] = [];
 
+    // Only true when this row actually supplies a *different* voucher
+    // number than what's already stored — never true just because this
+    // row's source report has no Voucher column at all (commit.ts falls
+    // back to the existing value in that case, so there's nothing to
+    // update), so a re-import with no voucher data never spuriously
+    // flags every reservation as changed.
+    const voucherChanged = Boolean(existingRes) && row.voucherNumber !== null && row.voucherNumber !== existingRes!.voucher_number;
+
     if (!existingRes) {
       action = "NEW";
     } else if (importKind === "CANCELLATIONS") {
-      action = existingRes.status === "CANCELLED" ? "UNCHANGED" : "UPDATE";
+      action = existingRes.status === "CANCELLED" && !voucherChanged ? "UNCHANGED" : "UPDATE";
     } else {
       const arrivalChanged = row.arrivalDate !== existingRes.arrival_date;
       const departureChanged = row.departureDate !== existingRes.departure_date;
@@ -169,7 +179,8 @@ export async function resolveRows(
         rateChanged ||
         statusChanged ||
         villaChanged ||
-        channelChanged
+        channelChanged ||
+        voucherChanged
           ? "UPDATE"
           : "UNCHANGED";
     }
@@ -184,6 +195,7 @@ export async function resolveRows(
       changeFlags,
       existingReservationId: existingRes?.id ?? null,
       existingBookingDate: existingRes?.booking_date ?? null,
+      existingVoucherNumber: existingRes?.voucher_number ?? null,
     };
   });
 

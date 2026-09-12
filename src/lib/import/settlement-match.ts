@@ -5,6 +5,8 @@ export function normalizeSettlementRef(ref: string): string {
 export interface ReservationCandidate {
   id: string;
   reservation_number: string;
+  /** The OTA's own booking reference (VHP's Voucher No/Voucher column) — confirmed against real data that this, not reservation_number, is what an OTA settlement file's own reference column actually matches. Null when never captured (e.g. a reservation seeded only by Baseline import, before this field existed). */
+  voucher_number?: string | null;
 }
 
 /**
@@ -30,6 +32,30 @@ export function matchSettlementReservation(
   return { outcome: "AMBIGUOUS", candidates };
 }
 
+/** Adds one reservation under one key to both lookup maps, without duplicating the same reservation twice under the same key (a reservation whose reservation_number and voucher_number happen to normalize identically shouldn't count as two candidates for itself). */
+function indexReservation(
+  exactByNumber: Map<string, ReservationCandidate[]>,
+  normalizedByNumber: Map<string, ReservationCandidate[]>,
+  key: string,
+  r: ReservationCandidate,
+) {
+  const exactKey = key.toUpperCase();
+  const exactList = exactByNumber.get(exactKey) ?? [];
+  if (!exactList.some((c) => c.id === r.id)) exactByNumber.set(exactKey, [...exactList, r]);
+
+  const normKey = normalizeSettlementRef(key);
+  const normList = normalizedByNumber.get(normKey) ?? [];
+  if (!normList.some((c) => c.id === r.id)) normalizedByNumber.set(normKey, [...normList, r]);
+}
+
+/**
+ * Indexes every reservation under BOTH its own reservation_number and its
+ * voucher_number (when captured) — an OTA settlement line's reference can
+ * match either, and matchSettlementReservation's own AMBIGUOUS handling
+ * already protects against the (extremely unlikely) case where two
+ * different reservations' numbers collide across the two key spaces:
+ * that surfaces as AMBIGUOUS, never a silent wrong pick.
+ */
 export function buildReservationLookup(reservations: ReservationCandidate[]): {
   exactByNumber: Map<string, ReservationCandidate[]>;
   normalizedByNumber: Map<string, ReservationCandidate[]>;
@@ -37,10 +63,8 @@ export function buildReservationLookup(reservations: ReservationCandidate[]): {
   const exactByNumber = new Map<string, ReservationCandidate[]>();
   const normalizedByNumber = new Map<string, ReservationCandidate[]>();
   for (const r of reservations) {
-    const exactKey = r.reservation_number.toUpperCase();
-    exactByNumber.set(exactKey, [...(exactByNumber.get(exactKey) ?? []), r]);
-    const normKey = normalizeSettlementRef(r.reservation_number);
-    normalizedByNumber.set(normKey, [...(normalizedByNumber.get(normKey) ?? []), r]);
+    indexReservation(exactByNumber, normalizedByNumber, r.reservation_number, r);
+    if (r.voucher_number) indexReservation(exactByNumber, normalizedByNumber, r.voucher_number, r);
   }
   return { exactByNumber, normalizedByNumber };
 }

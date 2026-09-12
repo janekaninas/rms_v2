@@ -73,7 +73,7 @@ export async function resolveSettlementImport(
 ): Promise<SettlementImportPreview> {
   const { data: reservationRows } = await supabase
     .from("reservations")
-    .select("id, reservation_number")
+    .select("id, reservation_number, voucher_number")
     .eq("channel_id", channelId);
   const reservations = (reservationRows ?? []) as ReservationCandidate[];
   const { exactByNumber, normalizedByNumber } = buildReservationLookup(reservations);

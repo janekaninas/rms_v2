@@ -3,6 +3,8 @@ export type ImportKind = "BASELINE_RESERVATION_SNAPSHOT" | "NEW_BOOKINGS" | "CAN
 export interface NormalizedReservationRow {
   sourceRowNumber: number;
   reservationNumber: string;
+  /** The OTA's own booking reference (VHP's "Voucher No"/"Voucher" column) — what an OTA settlement file's reservation reference actually matches, confirmed against real Booking.com data (never VHP's own reservationNumber). Null for a report shape with no such column (e.g. the Baseline/Arrival Report Snapshot). */
+  voucherNumber: string | null;
   channelRawName: string | null;
   roomNumber: string | null;
   roomType: string | null;
@@ -35,6 +37,8 @@ export interface ResolvedRow {
   existingReservationId: string | null;
   /** The stored booking_date, if any — preserved when this row doesn't supply one (e.g. Baseline import). */
   existingBookingDate: string | null;
+  /** The stored voucher_number, if any — preserved when this row's source report has no Voucher column at all (e.g. Baseline import). */
+  existingVoucherNumber: string | null;
 }
 
 export interface ImportPreview {

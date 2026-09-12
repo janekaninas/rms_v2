@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportKind, ImportPreview, ResolvedRow } from "./types";
 import { recomputeReservations } from "../financial/recompute";
+import { reresolveUnmatchedSettlementLines } from "../settlement/reresolve";
 
 function computeNights(arrival: string | null, departure: string | null): number {
   if (!arrival || !departure) return 0;
@@ -11,6 +12,10 @@ function toReservationPayload(r: ResolvedRow) {
   return {
     portfolio: "AASHA" as const,
     reservation_number: r.row.reservationNumber,
+    // The OTA's own booking reference (VHP's Voucher No/Voucher column) —
+    // never blanked out by a later import whose report shape has no such
+    // column at all (e.g. Baseline), same precedent as booking_date below.
+    voucher_number: r.row.voucherNumber ?? r.existingVoucherNumber,
     channel_id: r.channelId,
     villa_id: r.villaId,
     room_number: r.row.roomNumber,
@@ -101,6 +106,14 @@ export async function commitImport(
   // reservation's financial figures computable immediately — this is
   // not only a Room Revenue Breakdown concern.
   await recomputeReservations(supabase, affectedReservationIds);
+
+  // A New Bookings/Cancellations import can newly supply voucher_number
+  // for a reservation that already has settlement lines sitting UNMATCHED
+  // from before that value was captured — re-check them now rather than
+  // waiting for a manual sweep (IMPORT_LOGIC.md §8 pt.4).
+  if (importType === "NEW_BOOKINGS" || importType === "CANCELLATIONS") {
+    await reresolveUnmatchedSettlementLines(supabase);
+  }
 
   await supabase.from("imports").update({ status: "COMMITTED" }).eq("id", importId);
 

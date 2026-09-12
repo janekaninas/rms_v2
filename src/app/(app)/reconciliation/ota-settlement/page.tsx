@@ -14,6 +14,7 @@ import type { Channel, SettlementBatchStatus } from "@/lib/types";
 import { loadSettlementBatches } from "@/lib/settlement/reconciliation";
 import { BatchDrilldown } from "./batch-drilldown";
 import { SettlementFilters } from "./filters";
+import { ReresolveButton } from "./reresolve-button";
 
 function fmt(v: number | null) {
   if (v === null) return "—";
@@ -58,7 +59,10 @@ export default async function OtaSettlementPage({
     <div>
       <PageHeader eyebrow="Reconciliation" title="OTA Settlement" />
 
-      <SettlementFilters channels={channels ?? []} />
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <SettlementFilters channels={channels ?? []} />
+        <ReresolveButton />
+      </div>
 
       <div className="rounded-lg border bg-card">
         <Table>

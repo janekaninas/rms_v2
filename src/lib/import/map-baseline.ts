@@ -57,6 +57,11 @@ export function mapBaselineRows(table: ParsedTable): NormalizedReservationRow[] 
     return {
       sourceRowNumber: i + 1,
       reservationNumber,
+      // This report has no Voucher/Voucher No column at all (confirmed
+      // against the real "Arrival Guest Report" column list above) —
+      // never guessed; commit.ts preserves whatever voucher_number a
+      // later New Bookings/Cancellations re-import already supplied.
+      voucherNumber: null,
       channelRawName: channelRawNameCleaned === "" ? null : channelRawNameCleaned,
       roomNumber: cleanText(raw["Room Number"]) || null,
       roomType: cleanText(raw["Room Type"]) || null,

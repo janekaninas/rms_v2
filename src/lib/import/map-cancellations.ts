@@ -1,6 +1,6 @@
 import { ParsedTable } from "./csv";
 import { NormalizedReservationRow } from "./types";
-import { cleanText, parseFlexibleDate, parseLocaleNumber } from "./parse-utils";
+import { cleanText, cleanVoucherNumber, parseFlexibleDate, parseLocaleNumber } from "./parse-utils";
 
 /**
  * Cancelled Reservations (VHP "cancelled-reservation" export).
@@ -37,6 +37,7 @@ export function mapCancellationsRows(table: ParsedTable): NormalizedReservationR
     return {
       sourceRowNumber: i + 1,
       reservationNumber,
+      voucherNumber: cleanVoucherNumber(raw["Voucher"]),
       channelRawName: channelRawNameCleaned === "" ? null : channelRawNameCleaned,
       roomNumber: cleanText(raw["Room Number"]) || null,
       roomType: cleanText(raw["Room Type"]) || null,

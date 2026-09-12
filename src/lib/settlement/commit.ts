@@ -206,7 +206,7 @@ export async function commitSettlementBatches(
       if (payoutLines.length > 0) {
         const { data: reservationRows } = await supabase
           .from("reservations")
-          .select("id, reservation_number")
+          .select("id, reservation_number, voucher_number")
           .eq("channel_id", draft.channelId);
         const { exactByNumber, normalizedByNumber } = buildReservationLookup((reservationRows ?? []) as ReservationCandidate[]);
 
