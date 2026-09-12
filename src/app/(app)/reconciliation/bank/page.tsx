@@ -38,9 +38,12 @@ export default async function BankReconciliationPage({
   const params = await searchParams;
   const supabase = await createClient();
 
+  // Current-config filter surface — only active channels are worth
+  // offering to filter by (CLAUDE.md rule 8); this never affects which
+  // historical rows actually display, only which filter values are offered.
   const [bankAccounts, channels] = await Promise.all([
     supabase.from("bank_accounts").select("*").order("bank_name").then(unwrap<BankAccount[]>),
-    supabase.from("channels").select("*").order("display_name").then(unwrap<Channel[]>),
+    supabase.from("channels").select("*").eq("active", true).order("display_name").then(unwrap<Channel[]>),
   ]);
 
   const { rows } = await loadBankReconciliationRows(supabase, {

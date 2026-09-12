@@ -36,7 +36,16 @@ export default async function OtaSettlementPage({
   const params = await searchParams;
   const supabase = await createClient();
 
-  const channels = await supabase.from("channels").select("*").order("display_name").then(unwrap<Channel[]>);
+  // Current-config filter surface — only active channels are worth
+  // offering to filter by (CLAUDE.md rule 8); this never affects which
+  // historical batches actually display, only which filter values are
+  // offered.
+  const channels = await supabase
+    .from("channels")
+    .select("*")
+    .eq("active", true)
+    .order("display_name")
+    .then(unwrap<Channel[]>);
 
   const batches = await loadSettlementBatches(supabase, {
     channelId: params.channel || undefined,
