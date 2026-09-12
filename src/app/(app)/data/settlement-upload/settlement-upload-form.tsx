@@ -139,6 +139,42 @@ function MatchBadge({ outcome }: { outcome: string }) {
 
 const EMPTY_MAPPING: Partial<SettlementColumnMapping> = { mode: "FLAT", dateFormat: "YYYY-MM-DD" };
 
+/** The columns a mapping actually needs present in a file to be usable — used to auto-detect which saved preset (if any) fits a freshly-uploaded file, so Jane never has to pick a format herself for something already configured. */
+function requiredColumnsOf(mapping: SettlementColumnMapping): string[] {
+  if (mapping.mode === "HIERARCHICAL") {
+    const h = mapping.hierarchical!;
+    return [
+      h.typeColumn,
+      h.payout.batchDateColumn,
+      h.payout.batchReferenceColumn,
+      h.payout.batchTotalColumn,
+      h.reservation.reservationReferenceColumn,
+      h.reservation.amountColumn,
+    ];
+  }
+  // batchDate is deliberately excluded when absent — a preset relying on a
+  // manual batch-date override (e.g. Trip.com) has no file column for it.
+  return [mapping.batchDate, mapping.reservationReference, mapping.amount].filter((x): x is string => Boolean(x));
+}
+
+/** Extra columns a mapping references — used only to break a tie between two otherwise-fitting presets by picking the more specific one. */
+function optionalColumnsOf(mapping: SettlementColumnMapping): string[] {
+  if (mapping.mode === "HIERARCHICAL") {
+    const r = mapping.hierarchical!.reservation;
+    return [mapping.hierarchical!.payout.descriptionColumn, r.descriptionColumn, r.description2Column, r.externalLineRefColumn, ...(r.extraFields ?? []).map((f) => f.column)].filter(
+      (x): x is string => Boolean(x),
+    );
+  }
+  return [mapping.batchReference, mapping.lineType, mapping.description, mapping.description2, mapping.externalLineRef, ...(mapping.extraFields ?? []).map((f) => f.column)].filter(
+    (x): x is string => Boolean(x),
+  );
+}
+
+/** True only when a FLAT preset has no batchDate column at all — its payout date is a business decision entered fresh at each upload (IMPORT_LOGIC.md's "one value entered here" pattern), never a column-mapping question. */
+function needsManualBatchDate(mapping: SettlementColumnMapping): boolean {
+  return mapping.mode === "FLAT" && !mapping.batchDate;
+}
+
 export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   const [channelId, setChannelId] = useState<string>(channels[0]?.id ?? "");
   const [file, setFile] = useState<File | null>(null);
@@ -153,6 +189,12 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
   const [presetName, setPresetName] = useState("Default");
   const [headerLocatorInput, setHeaderLocatorInput] = useState("");
   const [manualBatchDate, setManualBatchDate] = useState("");
+  // Column mapping is one-time setup, not a per-upload step (Jane's
+  // explicit instruction) — hidden by default whenever a saved mapping
+  // was found to fit the uploaded file, and only shown for a genuinely
+  // unconfigured format or when explicitly expanded to double-check/edit.
+  const [showMappingUI, setShowMappingUI] = useState(false);
+  const [detectionNote, setDetectionNote] = useState<string | null>(null);
 
   function setMode(mode: SettlementFileShape) {
     setMapping((m) => ({
@@ -172,6 +214,53 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
     }));
   }
 
+  /**
+   * Tries every saved preset's own header-row locator against the file and
+   * checks whether that preset's required columns are actually present —
+   * never guessing which one applies, just checking whether it fits. Two
+   * presets can only both "fit" if the file happens to carry every
+   * required column of both (e.g. Airbnb's English/Indonesian presets
+   * reference entirely different column names, so at most one ever
+   * matches a real file); the more specific match (more of its optional
+   * columns also present) wins any tie.
+   */
+  async function tryAutoDetectPreset(
+    f: File,
+    savedPresets: OtaSettlementImportConfig[],
+  ): Promise<{ preset: OtaSettlementImportConfig; headers: string[] } | null> {
+    let best: { preset: OtaSettlementImportConfig; headers: string[]; score: number } | null = null;
+    for (const p of savedPresets) {
+      try {
+        const fd = new FormData();
+        fd.set("file", f);
+        const inspected = await inspectSettlementFileAction(fd, p.column_mapping.headerRowContains);
+        const required = requiredColumnsOf(p.column_mapping);
+        if (required.length === 0 || !required.every((col) => inspected.headers.includes(col))) continue;
+        const score = required.length + optionalColumnsOf(p.column_mapping).filter((c) => inspected.headers.includes(c)).length;
+        if (!best || score > best.score) best = { preset: p, headers: inspected.headers, score };
+      } catch {
+        continue; // this preset's header locator doesn't even find a header row in this file
+      }
+    }
+    return best;
+  }
+
+  async function runPreview(f: File, m: SettlementColumnMapping, manualDate: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", f);
+      const p = await previewSettlementAction(channelId, m, fd, manualDate || undefined);
+      setPreview(p);
+    } catch (e) {
+      setError((e as Error).message);
+      setPreview(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSelectFile(f: File | null) {
     setFile(f);
     setHeaders(null);
@@ -179,28 +268,45 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
     setCommittedIds(null);
     setError(null);
     setHeaderLocatorInput("");
+    setManualBatchDate("");
+    setDetectionNote(null);
+    setShowMappingUI(false);
     if (!f || !channelId) return;
     setLoading(true);
     try {
+      const savedPresets = await getSavedMappingsAction(channelId);
+      setPresets(savedPresets);
+
+      const match = await tryAutoDetectPreset(f, savedPresets);
+      if (match) {
+        setMapping(match.preset.column_mapping);
+        setPresetName(match.preset.preset_name);
+        setHeaders(match.headers);
+        setHeaderLocatorInput(match.preset.column_mapping.headerRowContains ?? "");
+        setDetectionNote(`Using the saved "${match.preset.preset_name}" mapping for this channel.`);
+        if (!needsManualBatchDate(match.preset.column_mapping)) {
+          await runPreview(f, match.preset.column_mapping, "");
+        }
+        // else: wait for the manual batch date prompt below before previewing.
+        return;
+      }
+
+      // No saved mapping fits this file — a genuinely unconfigured format.
+      // Surface it plainly rather than silently guessing a layout
+      // (IMPORT_LOGIC.md §8) and fall back to the mapping editor, since a
+      // human has to configure this one, once, before it can be uploaded.
       const fd = new FormData();
       fd.set("file", f);
-      const [inspected, savedPresets] = await Promise.all([
-        inspectSettlementFileAction(fd),
-        getSavedMappingsAction(channelId),
-      ]);
+      const inspected = await inspectSettlementFileAction(fd);
       setHeaders(inspected.headers);
-      setPresets(savedPresets);
-      // Auto-load only when there's exactly one saved preset — a channel
-      // with multiple (e.g. Airbnb's English/Indonesian presets) needs an
-      // explicit pick, since silently guessing which one applies to this
-      // file would risk mis-mapping it.
-      if (savedPresets.length === 1) {
-        setMapping(savedPresets[0].column_mapping);
-        setPresetName(savedPresets[0].preset_name);
-      } else {
-        setMapping(EMPTY_MAPPING);
-        setPresetName("Default");
-      }
+      setMapping(EMPTY_MAPPING);
+      setPresetName("Default");
+      setShowMappingUI(true);
+      setDetectionNote(
+        savedPresets.length === 0
+          ? "No settlement format is configured yet for this channel — map it once below."
+          : "None of this channel's saved format(s) match this file's columns — this looks like a new format. Map it once below.",
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -236,18 +342,15 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
 
   async function handlePreview() {
     if (!file || !isMappingComplete(mapping, manualBatchDate)) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const fd = new FormData();
-      fd.set("file", file);
-      const p = await previewSettlementAction(channelId, mapping, fd, manualBatchDate || undefined);
-      setPreview(p);
-    } catch (e) {
-      setError((e as Error).message);
-      setPreview(null);
-    } finally {
-      setLoading(false);
+    await runPreview(file, mapping, manualBatchDate);
+  }
+
+  async function handleManualBatchDateChange(value: string) {
+    setManualBatchDate(value);
+    // Auto-run once a date is entered for a preset that only needed this
+    // one value (e.g. Trip.com) — no separate "Preview" click required.
+    if (file && value && !showMappingUI && isMappingComplete(mapping, value)) {
+      await runPreview(file, mapping as SettlementColumnMapping, value);
     }
   }
 
@@ -342,35 +445,59 @@ export function SettlementUploadForm({ channels }: { channels: Channel[] }) {
             </div>
           </div>
 
-          {presets.length > 0 ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">Saved mappings for this channel:</span>
-              {presets.map((p) => (
-                <span key={p.preset_name} className="inline-flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs">
-                  <button type="button" className="font-medium hover:underline" onClick={() => loadPreset(p.preset_name)}>
-                    {p.preset_name}
-                  </button>
-                  <button type="button" className="text-muted-foreground hover:text-red-600" onClick={() => handleDeletePreset(p.preset_name)}>
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : null}
-
-          {!headers && (
+          {!headers && !detectionNote && (
             <p className="mt-3 text-xs text-muted-foreground">
-              Confirmed against real Booking.com, Airbnb, Agoda, and Tiket.com exports — map any
-              file&apos;s columns below after picking a file.
+              Pick a channel and a file — an already-configured format goes straight to a preview, no mapping needed.
             </p>
           )}
+
+          {detectionNote ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-muted-foreground">{detectionNote}</p>
+              {headers && !showMappingUI ? (
+                <button type="button" className="text-xs font-medium text-foreground hover:underline" onClick={() => setShowMappingUI(true)}>
+                  Edit mapping
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {error ? <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
         </div>
 
-        {headers ? (
+        {headers && !showMappingUI && needsManualBatchDate(mapping as SettlementColumnMapping) ? (
           <div className="rounded-lg border bg-card p-6">
-            <h3 className="mb-3 text-sm font-medium">Column mapping</h3>
+            <div className="space-y-1.5">
+              <Label>Collection date (this channel&apos;s payout date isn&apos;t in the file — enter it each upload)</Label>
+              <Input type="date" className="w-56" value={manualBatchDate} onChange={(e) => handleManualBatchDateChange(e.target.value)} />
+            </div>
+          </div>
+        ) : null}
+
+        {headers && showMappingUI ? (
+          <div className="rounded-lg border bg-card p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium">Column mapping</h3>
+              <button type="button" className="text-xs text-muted-foreground hover:underline" onClick={() => setShowMappingUI(false)}>
+                Hide
+              </button>
+            </div>
+
+            {presets.length > 0 ? (
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">Saved mappings for this channel:</span>
+                {presets.map((p) => (
+                  <span key={p.preset_name} className="inline-flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs">
+                    <button type="button" className="font-medium hover:underline" onClick={() => loadPreset(p.preset_name)}>
+                      {p.preset_name}
+                    </button>
+                    <button type="button" className="text-muted-foreground hover:text-red-600" onClick={() => handleDeletePreset(p.preset_name)}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
 
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
