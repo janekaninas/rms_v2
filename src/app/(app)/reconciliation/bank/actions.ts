@@ -10,6 +10,7 @@ import {
 } from "@/lib/bank/reconciliation";
 import { suggestCandidatesForTransaction, type CandidateBatch, type BankMatchSuggestion } from "@/lib/bank/matching";
 import { confirmBankAllocation } from "@/lib/bank/allocate";
+import { autoResolveExactMatches } from "@/lib/bank/auto-resolve";
 import type { BankMatchMethod } from "@/lib/types";
 
 export interface BatchBankDrilldown {
@@ -90,4 +91,20 @@ export async function confirmMatchAction(input: {
   });
 
   revalidatePath("/reconciliation/bank");
+}
+
+/**
+ * Manual "re-check now" sweep for the exact-reference-and-amount tier —
+ * mainly a backfill for data imported before the embedded-reference
+ * detection existed (new imports already auto-resolve this at commit
+ * time, src/lib/bank/commit.ts and src/lib/settlement/commit.ts). Never
+ * touches anything short of that same unambiguous tier — this button
+ * cannot create a match the system wouldn't already auto-confirm on its
+ * own for new data.
+ */
+export async function runAutoResolveAction(): Promise<{ resolvedCount: number }> {
+  const supabase = await createClient();
+  const result = await autoResolveExactMatches(supabase);
+  revalidatePath("/reconciliation/bank");
+  return result;
 }

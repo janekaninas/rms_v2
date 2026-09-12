@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import type { BankAccount } from "@/lib/types";
 import type { BankMutationImportPreview } from "@/lib/import/resolve-bank-mutation";
+import type { BankMutationCommitResult } from "@/lib/bank/commit";
 import { previewBankMutationAction, commitBankMutationAction } from "./actions";
 
 function fmt(v: number) {
@@ -27,7 +28,7 @@ export function BankMutationUploadForm({ bankAccounts }: { bankAccounts: BankAcc
   const [loading, setLoading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [committed, setCommitted] = useState<{ insertedCount: number; skippedAlreadyImportedCount: number; skippedUnrecognizedAccountCount: number } | null>(null);
+  const [committed, setCommitted] = useState<BankMutationCommitResult | null>(null);
 
   async function handleSelectFile(f: File | null) {
     setFile(f);
@@ -55,7 +56,10 @@ export function BankMutationUploadForm({ bankAccounts }: { bankAccounts: BankAcc
     try {
       const result = await commitBankMutationAction(file.name, preview);
       setCommitted(result);
-      toast.success(`Committed ${result.insertedCount} new bank transaction(s).`);
+      toast.success(
+        `Committed ${result.insertedCount} new bank transaction(s)` +
+          (result.autoResolvedCount > 0 ? `, ${result.autoResolvedCount} auto-matched to a settlement batch.` : "."),
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -180,7 +184,8 @@ export function BankMutationUploadForm({ bankAccounts }: { bankAccounts: BankAcc
             <span className="text-sm text-positive">
               {committed.insertedCount} new transaction(s) committed
               {committed.skippedAlreadyImportedCount > 0 ? `, ${committed.skippedAlreadyImportedCount} already-imported skipped` : ""}
-              {committed.skippedUnrecognizedAccountCount > 0 ? `, ${committed.skippedUnrecognizedAccountCount} from an unrecognized account skipped` : ""}.
+              {committed.skippedUnrecognizedAccountCount > 0 ? `, ${committed.skippedUnrecognizedAccountCount} from an unrecognized account skipped` : ""}
+              {committed.autoResolvedCount > 0 ? `, ${committed.autoResolvedCount} auto-matched to a settlement batch` : ""}.
             </span>
           ) : null}
         </div>

@@ -11,11 +11,15 @@ import type { BankMatchMethod } from "@/lib/types";
  * silently committed.
  *
  * BCA's own confirmed real export carries no separate reference/sequence
- * column at all (bank-mutation-docx.ts) — tier (1) is implemented for a
- * future bank source that does provide one, but in practice, for BCA,
- * every suggestion this produces requires a manual click; nothing
- * auto-resolves. This is a direct, worth-flagging consequence of the real
- * file format, not a gap in the matching logic.
+ * *column* at all (bank-mutation-docx.ts) — but real BCA descriptions were
+ * confirmed to embed the OTA's own payout/batch reference directly in the
+ * free-text description (e.g. "...BOOKING COM BV NOVW31LMYZNEOWAYOG..."
+ * literally contains Booking.com's real payout ID "Vw31lmyzNEOwayoG").
+ * Tier (1) therefore also checks whether a batch's own reference appears
+ * as a substring of the transaction description — this is still a
+ * genuine reference match, just extracted from free text rather than a
+ * dedicated column; a reference long/specific enough to require a
+ * minimum length is not something that plausibly appears by coincidence.
  */
 
 export interface CandidateBatch {
@@ -47,9 +51,19 @@ const DATE_PROXIMITY_DAYS = 5;
 // real payout can differ from the bank receipt by a bank fee or a partial
 // remittance, but a wildly different amount is not a plausible match.
 const LOOSE_AMOUNT_TOLERANCE_PCT = 0.15;
+// A reference shorter than this could plausibly appear in unrelated free
+// text by coincidence (e.g. a short numeric code) — only a reference at
+// least this specific counts as an embedded-reference match.
+const MIN_EMBEDDABLE_REFERENCE_LENGTH = 8;
 
 function normalizeForKeywordSearch(text: string): string {
   return text.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** A batch reference specific enough to trust, found verbatim inside the transaction's free-text description — real BCA descriptions were confirmed to embed exactly this (Booking.com's payout ID appears as "...BOOKING COM BV NO<reference>..."). */
+function descriptionEmbedsReference(description: string, batchReference: string | null): boolean {
+  if (!batchReference || batchReference.length < MIN_EMBEDDABLE_REFERENCE_LENGTH) return false;
+  return normalizeForKeywordSearch(description).includes(normalizeForKeywordSearch(batchReference));
 }
 
 /** Does the transaction description plausibly reference this channel? Real BCA samples confirm this: "BOOKING COM", "TRIP COM", "tiketcom...", "...Airbnb Payments UK Limited" all appear verbatim in real transaction descriptions. */
@@ -76,8 +90,12 @@ export function suggestCandidatesForTransaction(
     const remaining = c.netSettlementAmount - c.alreadyAllocated;
     const amountDiff = Math.abs(remaining - transaction.amount);
 
-    // Tier 1: exact reference match.
-    if (transaction.reference && c.batchReference && transaction.reference === c.batchReference) {
+    // Tier 1: exact reference match — either a dedicated reference column
+    // matching exactly, or the batch's own reference found embedded in
+    // the description's free text (confirmed real BCA behavior).
+    const exactRefColumnMatch = Boolean(transaction.reference && c.batchReference && transaction.reference === c.batchReference);
+    const embeddedRefMatch = descriptionEmbedsReference(transaction.description, c.batchReference);
+    if (exactRefColumnMatch || embeddedRefMatch) {
       const exactAmount = amountDiff <= AMOUNT_TOLERANCE;
       suggestions.push({
         settlementBatchId: c.id,

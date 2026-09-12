@@ -14,6 +14,7 @@ import type { BankAccount, BankReconciliationStatus, Channel } from "@/lib/types
 import { loadBankReconciliationRows } from "@/lib/bank/reconciliation";
 import { BankReconciliationFiltersBar } from "./filters";
 import { RowDrilldown } from "./row-drilldown";
+import { AutoResolveButton } from "./auto-resolve-button";
 
 function fmt(v: number | null) {
   if (v === null) return "—";
@@ -58,7 +59,10 @@ export default async function BankReconciliationPage({
     <div>
       <PageHeader eyebrow="Reconciliation" title="Bank Reconciliation" />
 
-      <BankReconciliationFiltersBar bankAccounts={bankAccounts ?? []} channels={channels ?? []} />
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <BankReconciliationFiltersBar bankAccounts={bankAccounts ?? []} channels={channels ?? []} />
+        <AutoResolveButton />
+      </div>
 
       <div className="rounded-lg border bg-card">
         <Table>

@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BankMutationImportPreview } from "../import/resolve-bank-mutation";
+import { autoResolveExactMatches } from "./auto-resolve";
 
 export interface BankMutationCommitResult {
   insertedCount: number;
   skippedAlreadyImportedCount: number;
   skippedUnrecognizedAccountCount: number;
+  autoResolvedCount: number;
 }
 
 /**
@@ -89,5 +91,10 @@ export async function commitBankMutationImport(
     throw e;
   }
 
-  return { insertedCount, skippedAlreadyImportedCount, skippedUnrecognizedAccountCount };
+  // A newly-imported transaction can complete an already-unambiguous
+  // exact-reference-and-amount pair against an existing settlement batch
+  // — check immediately rather than leaving it for a manual click.
+  const { resolvedCount: autoResolvedCount } = await autoResolveExactMatches(supabase);
+
+  return { insertedCount, skippedAlreadyImportedCount, skippedUnrecognizedAccountCount, autoResolvedCount };
 }

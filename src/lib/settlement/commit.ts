@@ -3,6 +3,7 @@ import type { SettlementBatchDraft } from "../import/settlement-types";
 import { batchDedupeHash, lineDedupeHash } from "../import/settlement-hash";
 import { buildReservationLookup, matchSettlementReservation, type ReservationCandidate } from "../import/settlement-match";
 import { deriveBatchStatus } from "./status";
+import { autoResolveExactMatches } from "../bank/auto-resolve";
 
 /**
  * Recomputes and persists one batch's status column from its current
@@ -246,6 +247,12 @@ export async function commitSettlementBatches(
 
     await refreshBatchStatus(supabase, batchId);
   }
+
+  // A newly-committed batch can complete an already-unambiguous
+  // exact-reference-and-amount pair against a bank transaction imported
+  // earlier — check immediately rather than leaving it for Bank
+  // Reconciliation's manual click (REPORTING_LOGIC.md §11).
+  await autoResolveExactMatches(supabase);
 
   return { batchIds };
 }
